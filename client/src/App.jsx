@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 // ─── API LAYER ────────────────────────────────────────────────────────────────
-const API = process.env.REACT_APP_API_URL || '';
+const API = import.meta.env.VITE_API_URL || '';
 
 async function apiFetch(path, opts = {}) {
   const res = await fetch(`${API}${path}`, {
