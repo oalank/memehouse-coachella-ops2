@@ -614,6 +614,54 @@ function PostEventReview({ ops, onUpdate }) {
   );
 }
 
+// ─── ADD OPERATOR MODAL ────────────────────────────────────────────────────────
+function AddOperatorModal({ onSave, onClose }) {
+  const [form, setForm] = useState({
+    full_name: '', phone: '', tier: 'T2', zone: 'Floater', hire_stage: 'Outreach',
+    cred_status: 'Not Started', cred_type: 'None', day_rate: 500, source: 'Manual',
+    reliability: 3, worked_with_memehouse: false, reel: false, refs: false, loa: false, w9: false,
+    gear: [], notes: '',
+  });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const toggleGear = (g) => set('gear', form.gear.includes(g) ? form.gear.filter(x => x !== g) : [...form.gear, g]);
+  const inputS = { background:'#1e293b',border:'1px solid #334155',borderRadius:5,padding:'6px 10px',color:'#e2e8f0',fontSize:10,outline:'none',width:'100%',fontFamily:'inherit' };
+  const labelS = { fontSize:9,color:'#64748b',fontWeight:700,letterSpacing:'0.08em',display:'block',marginBottom:4,textTransform:'uppercase' };
+  const wrap = { marginBottom:10 };
+  return (
+    <div style={{position:'fixed',inset:0,background:'#00000099',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:8,width:420,maxHeight:'85vh',overflowY:'auto',padding:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <div style={{fontSize:12,fontWeight:800,color:'#e94560',letterSpacing:'0.06em'}}>+ ADD OPERATOR</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#64748b',fontSize:16,cursor:'pointer'}}>✕</button>
+        </div>
+        <div style={wrap}><label style={labelS}>FULL NAME *</label><input value={form.full_name} onChange={e=>set('full_name',e.target.value)} style={inputS} placeholder="e.g. Alan K"/></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div style={wrap}><label style={labelS}>PHONE</label><input value={form.phone} onChange={e=>set('phone',e.target.value)} style={inputS} placeholder="(555) 123-4567"/></div>
+          <div style={wrap}><label style={labelS}>DAY RATE ($)</label><input type="number" value={form.day_rate} onChange={e=>set('day_rate',+e.target.value||0)} style={inputS} min={0} max={600}/></div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div style={wrap}><label style={labelS}>TIER</label><select value={form.tier} onChange={e=>set('tier',e.target.value)} style={{...inputS,cursor:'pointer'}}>{Object.keys(TIERS).map(t=><option key={t}>{t}</option>)}</select></div>
+          <div style={wrap}><label style={labelS}>ZONE</label><select value={form.zone} onChange={e=>set('zone',e.target.value)} style={{...inputS,cursor:'pointer'}}>{ZONES.map(z=><option key={z}>{z}</option>)}</select></div>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div style={wrap}><label style={labelS}>HIRE STAGE</label><select value={form.hire_stage} onChange={e=>set('hire_stage',e.target.value)} style={{...inputS,cursor:'pointer'}}>{HIRE_STAGES.map(s=><option key={s}>{s}</option>)}</select></div>
+          <div style={wrap}><label style={labelS}>CRED STATUS</label><select value={form.cred_status} onChange={e=>set('cred_status',e.target.value)} style={{...inputS,cursor:'pointer'}}>{CRED_STATES.map(s=><option key={s}>{s}</option>)}</select></div>
+        </div>
+        <div style={wrap}><label style={labelS}>CRED TYPE</label><select value={form.cred_type} onChange={e=>set('cred_type',e.target.value)} style={{...inputS,cursor:'pointer'}}>{CRED_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+        <div style={wrap}><label style={labelS}>RELIABILITY (1–5)</label><input type="number" value={form.reliability} onChange={e=>set('reliability',Math.min(5,Math.max(1,+e.target.value||3)))} style={inputS} min={1} max={5}/></div>
+        <div style={wrap}><label style={labelS}>GEAR</label><div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>{GEAR_TAGS.map(g=>(<span key={g} onClick={()=>toggleGear(g)} style={{padding:'2px 8px',borderRadius:4,fontSize:9,fontWeight:700,cursor:'pointer',background:form.gear.includes(g)?'#6366f122':'#1e293b',color:form.gear.includes(g)?'#818cf8':'#64748b',border:`1px solid ${form.gear.includes(g)?'#6366f144':'#334155'}`}}>{g}</span>))}</div></div>
+        <div style={{display:'flex',gap:10,marginBottom:14}}>
+          {[['worked_with_memehouse','Worked w/ MemeHouse'],['reel','Reel Reviewed'],['refs','Refs Checked'],['loa','LOA Signed'],['w9','W9 Collected']].map(([k,l])=>(<label key={k} style={{display:'flex',gap:4,alignItems:'center',cursor:'pointer',fontSize:10,color:form[k]?'#22c55e':'#64748b',fontWeight:600}}><input type="checkbox" checked={form[k]||false} onChange={e=>set(k,e.target.checked)} style={{accentColor:'#6366f1'}}/>{l}</label>))}
+        </div>
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+          <button onClick={onClose} style={{padding:'6px 14px',background:'transparent',border:'1px solid #334155',borderRadius:5,color:'#64748b',fontSize:10,cursor:'pointer',fontWeight:700}}>Cancel</button>
+          <button onClick={()=>{if(!form.full_name.trim())return alert('Full name required');onSave(form);onClose();}} style={{padding:'6px 16px',background:'#e94560',border:'none',borderRadius:5,color:'#fff',fontSize:10,cursor:'pointer',fontWeight:800,letterSpacing:'0.05em'}}>ADD OPERATOR</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ALL OPERATORS ────────────────────────────────────────────────────────────
 
 function OpsTable({ ops, onUpdate, currentRole }) {
@@ -903,6 +951,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(null);
   const [saving, setSaving] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   // ─── LOAD DATA ──────────────────────────────────────────────────────────────
   const loadOps = useCallback(async () => {
@@ -944,6 +993,14 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadOps(); }, [loadOps]);
+
+  const addOp = async (formData) => {
+    try {
+      const created = await api.addOperator(formData);
+      const n = { id: created.id, opId: created.op_id, name: created.full_name, tier: created.tier, zone: created.zone || 'Floater', stage: created.hire_stage, cred: created.cred_status, credType: created.cred_type, rate: created.day_rate, source: created.source || '', isBuffer: created.is_buffer, phone: created.phone || '', reel: created.reel, refs: created.refs, loa: created.loa, w9: created.w9, reliability: created.reliability, workedWithMemeHouse: created.worked_with_memehouse, lateToScreen: created.late_to_screen, rateInstability: created.rate_instability, gear: created.gear || [], perfScore: created.perf_score, rehireEligible: created.rehire_eligible, postNotes: created.post_notes || '', risk: created.risk || computeAutoRisk(created) };
+      setOps(prev => [...prev, n]);
+    } catch (err) { console.error('Add operator failed:', err); alert('Failed to add operator: ' + (err.message || 'Network error')); }
+  };
 
   const updateOp = async (id, updates) => {
     // Optimistic update
@@ -1040,6 +1097,7 @@ export default function App() {
         </div>
 
         <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+          <button onClick={()=>setShowAddModal(true)} style={{padding:"5px 12px",background:"#e94560",border:"none",borderRadius:5,color:"#fff",fontSize:9,fontWeight:800,letterSpacing:"0.05em",cursor:"pointer"}}>+ ADD OPERATOR</button>
           <div style={{width:7,height:7,borderRadius:99,background:roleColors[role]}}/>
           <select value={role} onChange={e=>setRole(e.target.value)} style={{background:"#1e293b",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#94a3b8",fontSize:9,fontWeight:700,outline:"none",cursor:"pointer"}}>
             {ROLES.map(r=><option key={r}>{r}</option>)}
@@ -1072,6 +1130,7 @@ export default function App() {
         {view==="postevent" && <PostEventReview ops={ops} onUpdate={updateOp}/>}
         {view==="schema"    && <SchemaView/>}
       </div>
+      {showAddModal && <AddOperatorModal onSave={addOp} onClose={()=>setShowAddModal(false)}/>}
     </div>
   );
 }

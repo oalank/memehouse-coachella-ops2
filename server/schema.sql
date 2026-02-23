@@ -68,7 +68,7 @@ CREATE TRIGGER operators_updated_at BEFORE UPDATE ON operators
 CREATE TRIGGER events_updated_at BEFORE UPDATE ON events
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- Default event row
+-- Default event row (only if empty)
 INSERT INTO events (event_name, start_date, end_date, labor_budget_cap)
-VALUES ('Coachella 2026', '2026-04-10', '2026-04-27', 80000)
-ON CONFLICT DO NOTHING;
+SELECT 'Coachella 2026', '2026-04-10', '2026-04-27', 80000
+WHERE NOT EXISTS (SELECT 1 FROM events LIMIT 1);
