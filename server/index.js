@@ -20,13 +20,17 @@ app.use(express.static(clientBuild));
 
 // ─── INIT DB ──────────────────────────────────────────────────────────────────
 async function initDB() {
+  if (!process.env.DATABASE_URL) {
+    console.error('DB init: DATABASE_URL not set — add Postgres in Railway Variables');
+    return;
+  }
   const fs = require('fs');
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   try {
     await pool.query(schema);
     console.log('✅ Database initialized');
   } catch (err) {
-    console.error('DB init error:', err.message);
+    console.error('DB init error:', err.message || err);
   }
 }
 
