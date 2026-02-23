@@ -211,6 +211,7 @@ app.get('*', (req, res) => {
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────
-initDB().then(() => {
-  app.listen(PORT, () => console.log(`🚀 MemeHouse Ops running on :${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 MemeHouse Ops running on :${PORT}`);
+  initDB().catch(err => console.error('DB init:', err.message));
 });
