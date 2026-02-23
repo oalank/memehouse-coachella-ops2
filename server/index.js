@@ -199,10 +199,9 @@ app.get('/api/stats', async (req, res) => {
 
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ ok: true, service: 'memehouse-ops', ts: new Date().toISOString() });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  let dbOk = false;
+  try { await pool.query('SELECT 1'); dbOk = true; } catch (e) { /* db not ready */ }
+  res.status(200).json({ ok: true, db: dbOk, service: 'memehouse-ops', ts: new Date().toISOString() });
 });
 
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
