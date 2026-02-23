@@ -13,9 +13,10 @@ const pool = new Pool({
 });
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
+const clientBuild = path.join(__dirname, process.env.NODE_ENV === 'production' ? 'client/build' : '../client/build');
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../client/build')));
+app.use(express.static(clientBuild));
 
 // ─── INIT DB ──────────────────────────────────────────────────────────────────
 async function initDB() {
@@ -206,7 +207,7 @@ app.get('/api/health', async (req, res) => {
 
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/build/index.html'));
+  res.sendFile(path.join(clientBuild, 'index.html'));
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────

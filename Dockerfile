@@ -15,5 +15,6 @@ RUN npm install --production
 COPY server/ ./
 COPY --from=builder /app/client/build ./client/build
 
+ENV NODE_ENV=production
 EXPOSE 3001
 CMD ["node", "index.js"]
