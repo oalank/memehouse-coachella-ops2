@@ -177,6 +177,56 @@ const GearChip = ({label, active, onClick}) => (
   }}>{label}</span>
 );
 
+// ─── EXECUTIVE (budget & labor from API) ───────────────────────────────────────
+function ExecutiveView() {
+  const [stats, setStats] = useState(null);
+  const [event, setEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [s, e] = await Promise.all([api.getStats(), api.getEvent()]);
+        setStats(s); setEvent(e);
+      } catch (e) { setErr(e.message); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+  if (loading) return <div style={{padding:40,textAlign:'center',color:'#64748b',fontSize:11}}>Loading executive data...</div>;
+  if (err) return <div style={{padding:40,textAlign:'center',color:'#ef4444'}}>Failed to load: {err}</div>;
+  const fmt$ = n => n == null ? '$0' : '$' + Math.round(n).toLocaleString();
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{background:"#0a1628",border:"1px solid #1e3a5f",borderRadius:8,padding:"14px 20px"}}>
+        <div style={{fontSize:12,fontWeight:800,color:"#e94560",letterSpacing:"0.06em",marginBottom:4}}>EXECUTIVE OVERVIEW</div>
+        <div style={{fontSize:10,color:"#64748b"}}>{stats?.eventName || 'Event'} · Budget & Labor from Database</div>
+      </div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        <StatCard label="Budget Cap" value={fmt$(stats?.budget)} sub="Total labor budget" accent="#6366f1"/>
+        <StatCard label="Actual Labor" value={fmt$(stats?.actualLabor)} sub="Logged shifts" accent="#22c55e"/>
+        <StatCard label="Projected Labor" value={fmt$(stats?.projectedLabor)} sub="From confirmed ops" accent="#f59e0b"/>
+        <StatCard label="Remaining" value={fmt$(stats?.remaining)} sub="Budget headroom" accent={stats?.remaining >= 0 ? "#22c55e" : "#ef4444"}/>
+        <StatCard label="OT Spend" value={fmt$(stats?.otSpend)} sub="Overtime" accent="#a855f7"/>
+      </div>
+      <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:8,padding:"16px 20px"}}>
+        <div style={{fontSize:11,fontWeight:800,color:"#64748b",letterSpacing:"0.08em",marginBottom:12}}>PIPELINE SUMMARY</div>
+        <div style={{display:"flex",gap:24,flexWrap:"wrap"}}>
+          <span><strong style={{color:"#22c55e"}}>{stats?.total ?? 0}</strong> total operators</span>
+          <span><strong style={{color:"#22c55e"}}>{stats?.confirmed ?? 0}</strong> confirmed</span>
+          <span><strong style={{color:"#0ea5e9"}}>{stats?.credApproved ?? 0}</strong> credentialed</span>
+          <span><strong style={{color:"#ef4444"}}>{stats?.credDenied ?? 0}</strong> cred denied</span>
+          <span><strong style={{color:"#ef4444"}}>{stats?.highRisk ?? 0}</strong> high-risk</span>
+        </div>
+        {(event?.event_name || event?.start_date) && (
+          <div style={{marginTop:14,fontSize:10,color:"#475569"}}>
+            Event: {event.event_name || '—'} · {event.start_date || '—'} – {event.end_date || '—'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
 function Dashboard({ ops }) {
@@ -190,7 +240,7 @@ function Dashboard({ ops }) {
   const lowRisk      = ops.filter(o=>o.risk==="LOW").length;
   const buffer       = ops.filter(o=>o.isBuffer).length;
   const broadcastQ   = ops.filter(isBroadcastQualified).length;
-  const pct = v => Math.round(v/total*100);
+  const pct = v => total ? Math.round(v/total*100) : 0;
 
   const stageData       = HIRE_STAGES.map(s=>({stage:s, count:ops.filter(o=>o.stage===s).length}));
   const zoneData        = ZONES.map(z=>({zone:z, confirmed:ops.filter(o=>o.zone===z&&o.stage==="Confirmed").length, total:ops.filter(o=>o.zone===z).length}));
@@ -200,7 +250,7 @@ function Dashboard({ ops }) {
   return (
     <div style={{display:"flex", flexDirection:"column", gap:20}}>
       <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
-        <StatCard label="Total Pipeline"   value={total}        sub={`50 primary + ${buffer} buffer`} accent="#6366f1"/>
+        <StatCard label="Total Pipeline"   value={total}        sub={total ? `${total - buffer} primary + ${buffer} buffer` : 'No operators yet'} accent="#6366f1"/>
         <StatCard label="Confirmed"        value={confirmed}    sub={`${pct(confirmed)}% of pipeline`} accent="#22c55e"/>
         <StatCard label="Credentialed"     value={credApproved} sub="Festival access approved"         accent="#0ea5e9"/>
         <StatCard label="LOAs Signed"      value={loaSigned}    sub="Agreements locked"                accent="#f59e0b"/>
@@ -655,7 +705,11 @@ function AddOperatorModal({ onSave, onClose }) {
         </div>
         <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
           <button onClick={onClose} style={{padding:'6px 14px',background:'transparent',border:'1px solid #334155',borderRadius:5,color:'#64748b',fontSize:10,cursor:'pointer',fontWeight:700}}>Cancel</button>
-          <button onClick={()=>{if(!form.full_name.trim())return alert('Full name required');onSave(form);onClose();}} style={{padding:'6px 16px',background:'#e94560',border:'none',borderRadius:5,color:'#fff',fontSize:10,cursor:'pointer',fontWeight:800,letterSpacing:'0.05em'}}>ADD OPERATOR</button>
+          <button onClick={()=>{
+            if(!form.full_name.trim())return alert('Full name required');
+            if(form.day_rate<0||form.day_rate>600)return alert('Day rate must be 0–600');
+            onSave(form);onClose();
+          }} style={{padding:'6px 16px',background:'#e94560',border:'none',borderRadius:5,color:'#fff',fontSize:10,cursor:'pointer',fontWeight:800,letterSpacing:'0.05em'}}>ADD OPERATOR</button>
         </div>
       </div>
     </div>
@@ -664,7 +718,7 @@ function AddOperatorModal({ onSave, onClose }) {
 
 // ─── ALL OPERATORS ────────────────────────────────────────────────────────────
 
-function OpsTable({ ops, onUpdate, currentRole }) {
+function OpsTable({ ops, onUpdate, onRemove, currentRole }) {
   const [sort, setSort]         = useState("id");
   const [search, setSearch]     = useState("");
   const [tierF, setTierF]       = useState("All");
@@ -683,7 +737,7 @@ function OpsTable({ ops, onUpdate, currentRole }) {
   const filtered = [...ops]
     .filter(o=>{
       const q=search.toLowerCase();
-      const ms=!q||o.name.toLowerCase().includes(q)||o.id.includes(q)||o.zone.toLowerCase().includes(q);
+      const ms=!q||o.name.toLowerCase().includes(q)||String(o.id).includes(q)||(o.opId&&o.opId.toLowerCase().includes(q))||(o.zone&&o.zone.toLowerCase().includes(q));
       const mt=tierF==="All"||o.tier===tierF;
       const mst=stageF==="All"||o.stage===stageF;
       const mg=gearF==="All"||o.gear.includes(gearF);
@@ -732,7 +786,7 @@ function OpsTable({ ops, onUpdate, currentRole }) {
               <div key={o.id} onClick={()=>setSelected(selected===o.id?null:o.id)}
                 style={{display:"grid",gridTemplateColumns:"80px 1fr 55px 80px 100px 115px 60px 70px 55px",padding:"9px 14px",gap:7,borderBottom:"1px solid #0f172a",alignItems:"center",
                   cursor:"pointer",background:selected===o.id?"#1e293b":o.cred==="Denied"?"#1a0000":o.isBuffer?"#0d0d1a":"transparent",transition:"background 0.1s"}}>
-                <span style={{fontSize:10,color:"#64748b",fontFamily:"monospace"}}>{o.id}</span>
+                <span style={{fontSize:10,color:"#64748b",fontFamily:"monospace"}}>{o.opId || o.id}</span>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:"#e2e8f0"}}>{o.name}</div>
                   <div style={{fontSize:9,color:"#475569"}}>{o.workedWithMemeHouse?"✓ Alumni":o.source}{isBroadcastQualified(o)?" · 📡":""}</div>
@@ -756,7 +810,7 @@ function OpsTable({ ops, onUpdate, currentRole }) {
       {op && (
         <div style={{width:268,background:"#0f172a",border:"1px solid #1e293b",borderRadius:8,padding:"16px 14px",flexShrink:0,display:"flex",flexDirection:"column",gap:12,maxHeight:"82vh",overflowY:"auto"}}>
           <div>
-            <div style={{fontSize:9,color:"#475569",fontFamily:"monospace",marginBottom:3}}>{op.id}</div>
+            <div style={{fontSize:9,color:"#475569",fontFamily:"monospace",marginBottom:3}}>{op.opId || op.id}</div>
             <div style={{fontSize:14,fontWeight:900,color:"#e2e8f0",marginBottom:6}}>{op.name}</div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
               <Tag label={TIERS[op.tier].label} color={TIERS[op.tier].color}/>
@@ -851,6 +905,11 @@ function OpsTable({ ops, onUpdate, currentRole }) {
                 <button onClick={()=>onUpdate(op.id,{rehireEligible:true})} style={{flex:1,padding:"4px",borderRadius:4,border:"none",cursor:"pointer",fontSize:9,fontWeight:700,background:op.rehireEligible===true?"#22c55e":"#1e293b",color:op.rehireEligible===true?"#fff":"#64748b"}}>✓ Rehire</button>
                 <button onClick={()=>onUpdate(op.id,{rehireEligible:false})} style={{flex:1,padding:"4px",borderRadius:4,border:"none",cursor:"pointer",fontSize:9,fontWeight:700,background:op.rehireEligible===false?"#ef4444":"#1e293b",color:op.rehireEligible===false?"#fff":"#64748b"}}>✗ No Rehire</button>
               </div>
+            </div>
+          )}
+          {currentRole==="Production Lead" && onRemove && (
+            <div style={{borderTop:"1px solid #1e293b",paddingTop:10,marginTop:8}}>
+              <button onClick={()=>onRemove(op.id)} style={{width:"100%",padding:"6px",background:"#1a0000",border:"1px solid #ef4444",borderRadius:5,color:"#ef4444",fontSize:9,fontWeight:700,cursor:"pointer",letterSpacing:"0.05em"}}>REMOVE OPERATOR</button>
             </div>
           )}
         </div>
@@ -1002,6 +1061,14 @@ export default function App() {
     } catch (err) { console.error('Add operator failed:', err); alert('Failed to add operator: ' + (err.message || 'Network error')); }
   };
 
+  const removeOp = async (id) => {
+    if (!confirm('Remove this operator permanently?')) return;
+    try {
+      await api.deleteOperator(id);
+      setOps(prev => prev.filter(o => o.id !== id));
+    } catch (err) { console.error('Delete failed:', err); alert('Failed to remove operator'); }
+  };
+
   const updateOp = async (id, updates) => {
     // Optimistic update
     setOps(prev => prev.map(o => {
@@ -1048,6 +1115,7 @@ export default function App() {
   );
 
   const VIEWS = [
+    {id:"executive", label:"Executive"},
     {id:"dashboard", label:"Dashboard"},
     {id:"kanban",    label:"Kanban"},
     {id:"creds",     label:"Credentials"},
@@ -1121,12 +1189,13 @@ export default function App() {
       </div>
 
       <div style={{padding:"20px 24px",maxWidth:1400,margin:"0 auto"}}>
+        {view==="executive" && <ExecutiveView/>}
         {view==="dashboard" && <Dashboard ops={ops}/>}
         {view==="kanban"    && <Kanban ops={ops} onUpdate={updateOp}/>}
         {view==="creds"     && <CredsTracker ops={ops} onUpdate={updateOp}/>}
         {view==="deploy"    && <DeployMatrix ops={ops}/>}
         {view==="emergency" && <EmergencyPool ops={ops}/>}
-        {view==="ops"       && <OpsTable ops={ops} onUpdate={updateOp} currentRole={role}/>}
+        {view==="ops"       && <OpsTable ops={ops} onUpdate={updateOp} onRemove={removeOp} currentRole={role}/>}
         {view==="postevent" && <PostEventReview ops={ops} onUpdate={updateOp}/>}
         {view==="schema"    && <SchemaView/>}
       </div>

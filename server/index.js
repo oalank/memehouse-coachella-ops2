@@ -76,10 +76,12 @@ app.post('/api/operators', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+const ALLOWED_OP_FIELDS = new Set(['full_name','hire_stage','cred_status','cred_type','zone','day_rate','tier','phone','source','is_buffer','reel','refs','loa','w9','reliability','worked_with_memehouse','late_to_screen','rate_instability','gear','perf_score','rehire_eligible','post_notes','notes']);
+
 app.patch('/api/operators/:id', async (req, res) => {
   const updates = req.body;
-  const fields = Object.keys(updates);
-  if (!fields.length) return res.status(400).json({ error: 'No fields' });
+  const fields = Object.keys(updates).filter(f => ALLOWED_OP_FIELDS.has(f));
+  if (!fields.length) return res.status(400).json({ error: 'No valid fields' });
 
   const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
   const values = fields.map(f => updates[f]);
@@ -142,9 +144,12 @@ app.get('/api/events', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+const ALLOWED_EVENT_FIELDS = new Set(['event_name','start_date','end_date','labor_budget_cap']);
+
 app.patch('/api/events', async (req, res) => {
   const updates = req.body;
-  const fields = Object.keys(updates);
+  const fields = Object.keys(updates).filter(f => ALLOWED_EVENT_FIELDS.has(f));
+  if (!fields.length) return res.status(400).json({ error: 'No valid fields' });
   const setClauses = fields.map((f, i) => `${f} = $${i + 1}`).join(', ');
   const values = fields.map(f => updates[f]);
   try {
