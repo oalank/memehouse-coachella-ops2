@@ -1,0 +1,272 @@
+/* Lovable UI global theme — design tokens, Tailwind, glass utilities */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 228 14% 3%;
+    --foreground: 210 20% 93%;
+    --card: 228 14% 7%;
+    --card-foreground: 210 20% 93%;
+    --popover: 228 14% 6%;
+    --popover-foreground: 210 20% 93%;
+    --primary: 38 92% 56%;
+    --primary-foreground: 228 14% 3%;
+    --primary-glow: 28 90% 50%;
+    --secondary: 228 11% 11%;
+    --secondary-foreground: 210 20% 85%;
+    --muted: 228 11% 10%;
+    --muted-foreground: 215 14% 54%;
+    --accent: 270 80% 65%;
+    --accent-foreground: 210 20% 95%;
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 228 11% 13%;
+    --input: 228 11% 9%;
+    --ring: 38 92% 56%;
+    --radius: 0.75rem;
+    --glow-cyan: 190 95% 55%;
+    --glow-violet: 270 80% 65%;
+    --glow-green: 145 70% 50%;
+    --glow-amber: 35 95% 55%;
+    --glow-pink: 340 80% 60%;
+    --glow-red: 0 75% 55%;
+    --glow-blue: 215 85% 55%;
+    --glow-gray: 220 10% 40%;
+    --sidebar-background: 228 14% 5%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-primary: 38 92% 56%;
+    --sidebar-primary-foreground: 228 14% 3%;
+    --sidebar-accent: 228 11% 10%;
+    --sidebar-accent-foreground: 210 20% 85%;
+    --sidebar-border: 228 11% 13%;
+    --sidebar-ring: 38 92% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #000;
+    position: relative;
+    min-height: 100vh;
+  }
+  /* Old orange/red glow removed — single global background is in .app-background (app-background.css) */
+}
+
+/* .dark::before removed — overlay is in .app-background::before only */
+
+@layer utilities {
+  /*
+   * Surface classes from Lovable (lovable/main src/index.css).
+   * Use design tokens as solid fills so panels match Lovable Card/dark UI.
+   * No backdrop-filter: solid dark navy/black, not frosted glass.
+   */
+  .glass {
+    background: hsl(var(--card));
+    border: 1px solid hsla(210, 20%, 93%, 0.08);
+    box-shadow:
+      0 0 24px hsla(210, 20%, 93%, 0.04),
+      inset 0 1px 0 hsla(210, 20%, 93%, 0.05),
+      inset 0 -1px 0 hsla(210, 20%, 93%, 0.02),
+      0 4px 20px hsla(0, 0%, 0%, 0.35);
+  }
+  .glass-strong {
+    background: hsl(var(--popover));
+    border: 1px solid hsla(210, 20%, 93%, 0.09);
+    box-shadow:
+      0 0 32px hsla(210, 20%, 93%, 0.05),
+      inset 0 1px 0 hsla(210, 20%, 93%, 0.06),
+      inset 0 -1px 0 hsla(210, 20%, 93%, 0.02),
+      0 6px 28px hsla(0, 0%, 0%, 0.4);
+  }
+  .glass-subtle {
+    background: hsl(var(--muted));
+    border: 1px solid hsla(210, 20%, 93%, 0.05);
+  }
+  .glass-panel {
+    background: hsl(var(--card));
+    border: 1px solid hsla(210, 20%, 93%, 0.08);
+    border-radius: 16px;
+    box-shadow: 0 0 28px hsla(210, 20%, 93%, 0.04), 0 24px 64px rgba(0, 0, 0, 0.45);
+  }
+  /* Restrained hover: slight lift + soft glow for interactive cards/panels */
+  .card-hover-subtle {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card-hover-subtle:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 0 32px hsla(210, 20%, 93%, 0.06), 0 8px 28px hsla(0, 0%, 0%, 0.4);
+  }
+
+  /* Hover light tracking: soft radial glow follows cursor on cards/panels (hover only) */
+  .card-light-track {
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.25s ease;
+    transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  }
+  .card-light-track:hover {
+    transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-1px);
+  }
+  .card-light-track::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 200ms ease;
+    background: radial-gradient(
+      circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      rgba(255, 255, 180, 0.35) 0%,
+      rgba(255, 235, 120, 0.25) 10%,
+      rgba(255, 210, 0, 0.15) 22%,
+      rgba(255, 210, 0, 0.08) 35%,
+      transparent 55%
+    );
+    filter: blur(10px);
+  }
+  .card-light-track:hover::after {
+    opacity: 1;
+  }
+  .sidebar-glass {
+    background: hsl(var(--sidebar-background));
+    border: none;
+  }
+  /* Remove any divider line under project strip on pipeline/deployment views */
+  .strip-no-divider {
+    border: none !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+  }
+  .sidebar-link {
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .sidebar-icon {
+    transition: color 0.2s ease, filter 0.2s ease;
+  }
+  .sidebar-link:hover:not(.sidebar-active-link) {
+    color: #ffd066;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 200, 80, 0.06),
+      rgba(255, 200, 80, 0.02),
+      transparent
+    );
+    box-shadow: 0 0 8px rgba(255, 200, 80, 0.15);
+  }
+  .sidebar-link:hover:not(.sidebar-active-link) .sidebar-icon {
+    color: #ffd066;
+    filter: drop-shadow(0 0 4px rgba(255, 200, 80, 0.35));
+  }
+  .sidebar-active-link {
+    color: #ffc233;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 190, 60, 0.10),
+      rgba(255, 190, 60, 0.04),
+      transparent
+    );
+    border-left: 2px solid #ffc233;
+    box-shadow:
+      0 0 12px rgba(255, 200, 80, 0.35),
+      0 0 24px rgba(255, 200, 80, 0.18);
+  }
+  /* content-glow: no gradient — global background only (app-background.css) */
+  .content-glow { position: relative; }
+  .content-glow > * { position: relative; z-index: 1; }
+  /* grid-bg: no grid here — single grid in .app-background::after (app-background.css) */
+  .grid-bg { position: relative; }
+  .grid-bg > * { position: relative; z-index: 1; }
+  /* Neon glow shadows — from Lovable src/index.css */
+  .glow-cyan { box-shadow: 0 0 20px hsla(190, 95%, 55%, 0.1), 0 0 60px hsla(190, 95%, 55%, 0.04), inset 0 1px 0 hsla(190, 95%, 55%, 0.08), inset 0 -1px 0 hsla(190, 95%, 55%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-violet { box-shadow: 0 0 20px hsla(270, 80%, 65%, 0.1), 0 0 60px hsla(270, 80%, 65%, 0.04), inset 0 1px 0 hsla(270, 80%, 65%, 0.08), inset 0 -1px 0 hsla(270, 80%, 65%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-green { box-shadow: 0 0 20px hsla(145, 70%, 50%, 0.1), 0 0 60px hsla(145, 70%, 50%, 0.04), inset 0 1px 0 hsla(145, 70%, 50%, 0.08), inset 0 -1px 0 hsla(145, 70%, 50%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-amber { box-shadow: 0 0 20px hsla(35, 95%, 55%, 0.1), 0 0 60px hsla(35, 95%, 55%, 0.04), inset 0 1px 0 hsla(35, 95%, 55%, 0.08), inset 0 -1px 0 hsla(35, 95%, 55%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-pink { box-shadow: 0 0 20px hsla(340, 80%, 60%, 0.1), 0 0 60px hsla(340, 80%, 60%, 0.04), inset 0 1px 0 hsla(340, 80%, 60%, 0.08), inset 0 -1px 0 hsla(340, 80%, 60%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-red { box-shadow: 0 0 20px hsla(0, 75%, 55%, 0.1), 0 0 60px hsla(0, 75%, 55%, 0.04), inset 0 1px 0 hsla(0, 75%, 55%, 0.08), inset 0 -1px 0 hsla(0, 75%, 55%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-blue { box-shadow: 0 0 20px hsla(215, 85%, 55%, 0.1), 0 0 60px hsla(215, 85%, 55%, 0.04), inset 0 1px 0 hsla(215, 85%, 55%, 0.08), inset 0 -1px 0 hsla(215, 85%, 55%, 0.04), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .glow-gray { box-shadow: 0 0 20px hsla(220, 10%, 40%, 0.08), 0 0 60px hsla(220, 10%, 40%, 0.03), inset 0 1px 0 hsla(220, 10%, 40%, 0.06), inset 0 -1px 0 hsla(220, 10%, 40%, 0.03), 0 2px 8px hsla(0, 0%, 0%, 0.4); }
+  .hover-glow-cyan:hover { box-shadow: 0 0 28px hsla(190, 95%, 55%, 0.18), 0 0 80px hsla(190, 95%, 55%, 0.07), inset 0 1px 0 hsla(190, 95%, 55%, 0.12), inset 0 -1px 0 hsla(190, 95%, 55%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-violet:hover { box-shadow: 0 0 28px hsla(270, 80%, 65%, 0.18), 0 0 80px hsla(270, 80%, 65%, 0.07), inset 0 1px 0 hsla(270, 80%, 65%, 0.12), inset 0 -1px 0 hsla(270, 80%, 65%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-green:hover { box-shadow: 0 0 28px hsla(145, 70%, 50%, 0.18), 0 0 80px hsla(145, 70%, 50%, 0.07), inset 0 1px 0 hsla(145, 70%, 50%, 0.12), inset 0 -1px 0 hsla(145, 70%, 50%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-amber:hover { box-shadow: 0 0 28px hsla(35, 95%, 55%, 0.18), 0 0 80px hsla(35, 95%, 55%, 0.07), inset 0 1px 0 hsla(35, 95%, 55%, 0.12), inset 0 -1px 0 hsla(35, 95%, 55%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-pink:hover { box-shadow: 0 0 28px hsla(340, 80%, 60%, 0.18), 0 0 80px hsla(340, 80%, 60%, 0.07), inset 0 1px 0 hsla(340, 80%, 60%, 0.12), inset 0 -1px 0 hsla(340, 80%, 60%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-red:hover { box-shadow: 0 0 28px hsla(0, 75%, 55%, 0.18), 0 0 80px hsla(0, 75%, 55%, 0.07), inset 0 1px 0 hsla(0, 75%, 55%, 0.12), inset 0 -1px 0 hsla(0, 75%, 55%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-blue:hover { box-shadow: 0 0 28px hsla(215, 85%, 55%, 0.18), 0 0 80px hsla(215, 85%, 55%, 0.07), inset 0 1px 0 hsla(215, 85%, 55%, 0.12), inset 0 -1px 0 hsla(215, 85%, 55%, 0.06), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .hover-glow-gray:hover { box-shadow: 0 0 28px hsla(220, 10%, 40%, 0.15), 0 0 80px hsla(220, 10%, 40%, 0.06), inset 0 1px 0 hsla(220, 10%, 40%, 0.1), inset 0 -1px 0 hsla(220, 10%, 40%, 0.05), 0 8px 32px hsla(0, 0%, 0%, 0.5); }
+  .card-lift { @apply transition-all duration-300 ease-out; }
+  .card-lift:hover { transform: translateY(-2px); }
+
+  /* Date / time picker icons on dark glass inputs (Log Shift etc.) */
+  .glass[type="date"],
+  .glass[type="datetime-local"] {
+    cursor: pointer;
+  }
+  .glass[type="date"]::-webkit-calendar-picker-indicator,
+  .glass[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.9) saturate(1.1);
+    opacity: 0.9;
+  }
+  .glass[type="date"]:hover::-webkit-calendar-picker-indicator,
+  .glass[type="datetime-local"]:hover::-webkit-calendar-picker-indicator {
+    opacity: 1;
+  }
+
+  /* Edge glow bottom accents — from Lovable src/index.css */
+  .edge-glow-bottom-cyan { box-shadow: 0 4px 30px hsla(190, 95%, 55%, 0.18), inset 0 -1px 0 hsla(190, 95%, 55%, 0.25); }
+  .edge-glow-bottom-amber { box-shadow: 0 4px 30px hsla(35, 95%, 55%, 0.18), inset 0 -1px 0 hsla(35, 95%, 55%, 0.25); }
+  .edge-glow-bottom-green { box-shadow: 0 4px 30px hsla(145, 70%, 50%, 0.18), inset 0 -1px 0 hsla(145, 70%, 50%, 0.25); }
+  .edge-glow-bottom-violet { box-shadow: 0 4px 30px hsla(270, 80%, 65%, 0.18), inset 0 -1px 0 hsla(270, 80%, 65%, 0.25); }
+
+  /* Table row hover — from Lovable src/index.css */
+  .row-hover-glow { @apply transition-all duration-200; }
+  .row-hover-glow:hover {
+    background: hsla(228, 11%, 14%, 0.6);
+    box-shadow: inset 2px 0 0 hsla(38, 92%, 56%, 0.3);
+  }
+  .text-heading-glow {
+    background: linear-gradient(135deg, hsl(45, 95%, 65%), hsl(35, 92%, 55%), hsl(25, 88%, 50%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 12px hsla(38, 92%, 56%, 0.3));
+  }
+  .pill-glow-amber { box-shadow: 0 0 18px hsla(35, 95%, 55%, 0.32), 0 0 6px hsla(35, 95%, 55%, 0.18), inset 0 0 12px hsla(35, 95%, 55%, 0.1); }
+  .pill-glow-cyan { box-shadow: 0 0 18px hsla(190, 95%, 55%, 0.32), 0 0 6px hsla(190, 95%, 55%, 0.18), inset 0 0 12px hsla(190, 95%, 55%, 0.1); }
+  .pill-glow-violet { box-shadow: 0 0 18px hsla(270, 80%, 65%, 0.32), 0 0 6px hsla(270, 80%, 65%, 0.18), inset 0 0 12px hsla(270, 80%, 65%, 0.1); }
+  .pill-glow-green { box-shadow: 0 0 18px hsla(145, 70%, 50%, 0.32), 0 0 6px hsla(145, 70%, 50%, 0.18), inset 0 0 12px hsla(145, 70%, 50%, 0.1); }
+  .pill-glow-pink { box-shadow: 0 0 18px hsla(340, 80%, 60%, 0.32), 0 0 6px hsla(340, 80%, 60%, 0.18), inset 0 0 12px hsla(340, 80%, 60%, 0.1); }
+  .pill-glow-red { box-shadow: 0 0 18px hsla(0, 75%, 55%, 0.32), 0 0 6px hsla(0, 75%, 55%, 0.18), inset 0 0 12px hsla(0, 75%, 55%, 0.1); }
+  .pill-glow-blue { box-shadow: 0 0 18px hsla(215, 85%, 55%, 0.32), 0 0 6px hsla(215, 85%, 55%, 0.18), inset 0 0 12px hsla(215, 85%, 55%, 0.1); }
+  .pill-glow-gray { box-shadow: 0 0 18px hsla(220, 10%, 40%, 0.25), 0 0 6px hsla(220, 10%, 40%, 0.12), inset 0 0 12px hsla(220, 10%, 40%, 0.06); }
+
+  /* Primary button glow: subtle outer glow on hover/focus/active */
+  .btn-primary-glow {
+    transition: box-shadow 0.2s ease;
+  }
+  .btn-primary-glow:hover,
+  .btn-primary-glow:focus-visible,
+  .btn-primary-glow:active {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3), 0 0 40px hsl(var(--primary) / 0.1);
+  }
+
+  /* Premium: keyboard focus visible for accessibility */
+  button:focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--primary) / 0.5);
+  }
+}

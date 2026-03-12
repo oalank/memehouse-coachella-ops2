@@ -1,0 +1,59 @@
+/* Global background — full-site layer behind all pages.
+   Layered: black base → background image → ambient glow → dark overlay.
+   Used by Layout so it applies to launcher, executive, deployment, expenses, shifts, operators, credentials, kanban, dashboard, post-event, db schema. */
+
+.app-background {
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+  overflow-x: hidden;
+  /* Black base */
+  background-color: #000;
+  /* Background image — cover viewport, centered, no repeat */
+  background-image: url("/bg-global.png");
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  background-attachment: fixed;
+}
+
+/* Ambient glow — soft radial gradients behind all content; no motion, no scroll artifacts */
+.app-background::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      circle at 20% 20%,
+      rgba(255, 120, 0, 0.12),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 80% 40%,
+      rgba(0, 120, 255, 0.10),
+      transparent 50%
+    ),
+    radial-gradient(
+      circle at 50% 90%,
+      rgba(255, 0, 140, 0.08),
+      transparent 55%
+    );
+  filter: blur(120px);
+}
+
+/* Dark overlay for readability — keeps text and cards readable, image and glow subtle */
+.app-background::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.app-background > * {
+  position: relative;
+  z-index: 1;
+}

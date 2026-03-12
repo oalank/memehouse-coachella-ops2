@@ -1,4 +1,7 @@
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+
 const express = require('express');
+const fs = require('fs');
 const { Pool } = require('pg');
 const cors = require('cors');
 const path = require('path');
@@ -7,30 +10,128 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // ─── DB ───────────────────────────────────────────────────────────────────────
+const hasDb = !!process.env.DATABASE_URL;
+const isLocalDb = process.env.DATABASE_URL?.includes('localhost');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : false,
+  ssl: hasDb && !isLocalDb ? { rejectUnauthorized: false } : false,
 });
 
+// ─── STATIC: production only, client/dist only; NEVER client/build in dev ───────
+const clientDist = path.join(__dirname, '../client/dist');
+const isProduction = process.env.NODE_ENV === 'production';
+const distIndexPath = path.join(clientDist, 'index.html');
+const productionBuildExists = isProduction && fs.existsSync(distIndexPath);
+
+if (productionBuildExists) {
+  app.use(express.static(clientDist));
+} else if (isProduction) {
+  console.warn('⚠️ client/dist not found; API only. Run "npm run build" in client.');
+}
+
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
-const clientBuild = path.join(__dirname, process.env.NODE_ENV === 'production' ? 'client/build' : '../client/build');
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
-app.use(express.static(clientBuild));
 
 // ─── INIT DB ──────────────────────────────────────────────────────────────────
+/**
+ * Migrate existing DBs: add new columns if missing.
+ * Safe to run on fresh or existing databases.
+ */
+async function migrateDB() {
+  const coreMigrations = [
+    `ALTER TABLE operators ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true`,
+    `ALTER TABLE operators ADD COLUMN IF NOT EXISTS planned_days INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE operators ADD COLUMN IF NOT EXISTS project_id VARCHAR(128)`,
+    `ALTER TABLE operators ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS project_id VARCHAR(128)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS hours NUMERIC(4,2)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS ot_hours NUMERIC(4,2)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS notes TEXT`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS worked_hours NUMERIC(5,2)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS overtime_hours NUMERIC(5,2)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS overtime_pay NUMERIC(8,2)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS total_pay NUMERIC(8,2)`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS on_break BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS break_started_at TIMESTAMPTZ`,
+    `ALTER TABLE shifts ADD COLUMN IF NOT EXISTS break_ended_at TIMESTAMPTZ`,
+    `CREATE INDEX IF NOT EXISTS idx_shifts_operator_clockout ON shifts (operator_id, end_time)`,
+    `CREATE TABLE IF NOT EXISTS project_operators (
+      id SERIAL PRIMARY KEY,
+      project_id VARCHAR(128) NOT NULL,
+      operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      zone VARCHAR(50),
+      hire_stage VARCHAR(50) NOT NULL DEFAULT 'Outreach',
+      cred_status VARCHAR(50) NOT NULL DEFAULT 'Not Started',
+      cred_type VARCHAR(50) NOT NULL DEFAULT 'None',
+      planned_days INTEGER NOT NULL DEFAULT 1,
+      project_day_rate INTEGER,
+      tier VARCHAR(20),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(project_id, operator_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_project_operators_project ON project_operators (project_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_project_operators_operator ON project_operators (operator_id)`,
+    `ALTER TABLE project_operators ADD COLUMN IF NOT EXISTS availability_status VARCHAR(50)`,
+    `ALTER TABLE project_operators ADD COLUMN IF NOT EXISTS available_through DATE`,
+    `ALTER TABLE project_operators ADD COLUMN IF NOT EXISTS availability_note TEXT`,
+    `ALTER TABLE project_operators ADD COLUMN IF NOT EXISTS availability_updated_by VARCHAR(255)`,
+    `ALTER TABLE project_operators ADD COLUMN IF NOT EXISTS availability_updated_at TIMESTAMPTZ`,
+    `CREATE TABLE IF NOT EXISTS operator_rating_history (
+      id SERIAL PRIMARY KEY,
+      operator_id INTEGER NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      old_rating INTEGER NOT NULL CHECK (old_rating >= 1 AND old_rating <= 5),
+      new_rating INTEGER NOT NULL CHECK (new_rating >= 1 AND new_rating <= 5),
+      reason TEXT,
+      updated_by VARCHAR(255),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_operator_rating_history_operator ON operator_rating_history (operator_id)`,
+  ];
+  for (const q of coreMigrations) {
+    try { await pool.query(q); } catch (_) { /* column may already exist */ }
+  }
+  // One-time: move operators with project_id into project_operators, then clear project_id
+  try {
+    const { rows: legacy } = await pool.query('SELECT id, project_id, zone, hire_stage, cred_status, cred_type, planned_days, day_rate, tier FROM operators WHERE project_id IS NOT NULL AND project_id != \'\'');
+    for (const op of legacy) {
+      await pool.query(
+        `INSERT INTO project_operators (project_id, operator_id, zone, hire_stage, cred_status, cred_type, planned_days, project_day_rate, tier)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (project_id, operator_id) DO NOTHING`,
+        [op.project_id, op.id, op.zone, op.hire_stage || 'Outreach', op.cred_status || 'Not Started', op.cred_type || 'None', op.planned_days ?? 1, op.day_rate, op.tier || 'T2']
+      );
+    }
+    if (legacy.length) await pool.query('UPDATE operators SET project_id = NULL WHERE project_id IS NOT NULL');
+  } catch (_) { /* migration already done or table not ready */ }
+}
+
 async function initDB() {
-  if (!process.env.DATABASE_URL) {
-    console.error('DB init: DATABASE_URL not set — add Postgres in Railway Variables');
+  if (!hasDb) {
+    console.warn('   Skipping DB init: DATABASE_URL not set');
     return;
   }
-  const fs = require('fs');
-  const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   try {
-    await pool.query(schema);
-    console.log('✅ Database initialized');
+    await pool.query('SELECT 1');
+    console.log('   DB connection: OK');
   } catch (err) {
-    console.error('DB init error:', err.message || err);
+    console.error('   DB connection FAILED:', err.message);
+    console.error('   Stack:', err.stack);
+    return;
+  }
+  const schemaPath = path.join(__dirname, 'schema.sql');
+  const schema = fs.readFileSync(schemaPath, 'utf8');
+  // Run only non-auth schema (from operators onward) so server boots without users/invites/reset_token
+  const operatorsStart = schema.indexOf('CREATE TABLE IF NOT EXISTS operators');
+  const schemaToRun = operatorsStart >= 0 ? schema.slice(operatorsStart) : schema;
+  try {
+    await pool.query(schemaToRun);
+    await migrateDB();
+    console.log('✅ Database initialized (operators, shifts, events)');
+  } catch (err) {
+    console.error('DB init error:', err.message);
+    console.error('Stack:', err.stack);
   }
 }
 
@@ -42,50 +143,108 @@ function computeRisk(op) {
   return 'LOW';
 }
 
-// ─── OPERATORS ────────────────────────────────────────────────────────────────
+// ─── DB FALLBACK (return safe empty data when DB unavailable) ────────────────
+function dbDown(res, route, fallback) {
+  console.warn(`[${route}] DB down or query failed: returning fallback payload`);
+  res.status(200).json(fallback);
+}
+
+// ─── OPERATORS (global list or project roster via project_operators) ──────────
 app.get('/api/operators', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM operators ORDER BY created_at ASC');
-    const ops = rows.map(o => ({ ...o, risk: computeRisk(o) }));
-    res.json(ops);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const projectId = req.query.project_id || req.query.projectId || null;
+    const includeArchived = req.query.includeArchived === 'true' || req.query.includeArchived === '1';
+
+    if (projectId != null && projectId !== '') {
+      // Project roster: join operators + project_operators, effective rate = project_day_rate ?? day_rate
+      let query = `
+        SELECT o.*, po.id AS project_operator_id,
+          COALESCE(po.project_day_rate, o.day_rate) AS day_rate,
+          COALESCE(po.tier, o.tier) AS tier,
+          po.zone AS zone,
+          po.hire_stage AS hire_stage,
+          po.cred_status AS cred_status,
+          po.cred_type AS cred_type,
+          po.planned_days AS planned_days,
+          po.availability_status AS availability_status,
+          po.available_through AS available_through,
+          po.availability_note AS availability_note,
+          po.availability_updated_by AS availability_updated_by,
+          po.availability_updated_at AS availability_updated_at
+        FROM operators o
+        INNER JOIN project_operators po ON po.operator_id = o.id AND po.project_id = $1
+        WHERE 1=1`;
+      const params = [projectId];
+      if (!includeArchived) {
+        query += ' AND o.is_archived = false';
+      }
+      query += ' ORDER BY o.created_at ASC';
+      const { rows } = await pool.query(query, params);
+      const ops = rows.map(o => {
+        const { project_operator_id, ...rest } = o;
+        return { ...rest, project_operator_id, risk: computeRisk(rest) };
+      });
+      return res.json(ops);
+    }
+
+    // Global list (for "select existing" picker)
+    let query = 'SELECT id, op_id, full_name, phone, day_rate, tier, is_archived, created_at FROM operators WHERE 1=1';
+    const params = [];
+    if (!includeArchived) {
+      query += ' AND is_archived = false';
+    }
+    query += ' ORDER BY full_name ASC';
+    const { rows } = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('[GET /api/operators]', err.message);
+    dbDown(res, 'GET /api/operators', []);
+  }
 });
 
 app.post('/api/operators', async (req, res) => {
+  if (!hasDb) {
+    res.status(503).json({ error: 'DATABASE_URL not set. Add it to server/.env and restart.' });
+    return;
+  }
   const o = req.body;
   const opId = `OP-${Date.now()}`;
   try {
+    const gearVal = Array.isArray(o.gear) ? o.gear : (o.gear ? [].concat(o.gear) : []);
     const { rows } = await pool.query(`
       INSERT INTO operators
         (op_id, full_name, tier, zone, hire_stage, cred_status, cred_type,
-         day_rate, source, is_buffer, phone, reel, refs, loa, w9,
+         day_rate, planned_days, source, is_buffer, phone, reel, refs, loa, w9,
          reliability, worked_with_memehouse, late_to_screen, rate_instability,
          gear, perf_score, rehire_eligible, post_notes, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
       RETURNING *`,
-      [opId, o.full_name, o.tier||'T2', o.zone||null, o.hire_stage||'Outreach',
+      [opId, o?.full_name ?? '', o.tier||'T2', o.zone||null, o.hire_stage||'Outreach',
        o.cred_status||'Not Started', o.cred_type||'None', o.day_rate||0,
+       o.planned_days != null ? o.planned_days : 1,
        o.source||null, o.is_buffer||false, o.phone||null,
        o.reel||false, o.refs||false, o.loa||false, o.w9||false,
        o.reliability||3, o.worked_with_memehouse||false,
        o.late_to_screen||false, o.rate_instability||false,
-       o.gear||[], o.perf_score||null, o.rehire_eligible||null,
+       gearVal, o.perf_score||null, o.rehire_eligible||null,
        o.post_notes||null, o.notes||null]
     );
-    res.json({ ...rows[0], risk: computeRisk(rows[0]) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.status(201).json({ ...rows[0], risk: computeRisk(rows[0]) });
+  } catch (err) {
+    console.error('[POST /api/operators]', err.message);
+    console.error('[POST /api/operators] Stack:', err.stack);
+    res.status(500).json({ error: err.message || 'Database error' });
+  }
 });
 
-const ALLOWED_OP_FIELDS = new Set(['full_name','hire_stage','cred_status','cred_type','zone','day_rate','tier','phone','source','is_buffer','reel','refs','loa','w9','reliability','worked_with_memehouse','late_to_screen','rate_instability','gear','perf_score','rehire_eligible','post_notes','notes']);
+const OP_PATCH_WHITELIST = ['full_name','phone','day_rate','zone','cred_status','hire_stage','cred_type','planned_days','notes','active','is_archived','reliability','worked_with_memehouse','late_to_screen','rate_instability'];
 
 app.patch('/api/operators/:id', async (req, res) => {
   const updates = req.body;
-  const fields = Object.keys(updates).filter(f => ALLOWED_OP_FIELDS.has(f));
-  if (!fields.length) return res.status(400).json({ error: 'No valid fields' });
-
-  const setClauses = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
-  const values = fields.map(f => updates[f]);
-
+  const allowed = Object.keys(updates).filter(k => OP_PATCH_WHITELIST.includes(k));
+  if (!allowed.length) return res.status(400).json({ error: 'No valid fields' });
+  const setClauses = allowed.map((f, i) => `${f} = $${i + 2}`).join(', ');
+  const values = allowed.map(f => updates[f]);
   try {
     const { rows } = await pool.query(
       `UPDATE operators SET ${setClauses} WHERE id = $1 RETURNING *`,
@@ -96,6 +255,29 @@ app.patch('/api/operators/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.post('/api/operators/:id/rating-history', async (req, res) => {
+  const operatorId = req.params.id;
+  const { old_rating, new_rating, reason, updated_by } = req.body || {};
+  if (new_rating == null || (Number(new_rating) < 1 || Number(new_rating) > 5)) {
+    return res.status(400).json({ error: 'new_rating required (1-5)' });
+  }
+  const oldVal = old_rating != null ? Number(old_rating) : null;
+  const newVal = Number(new_rating);
+  if (oldVal != null && (oldVal < 1 || oldVal > 5)) return res.status(400).json({ error: 'old_rating must be 1-5 if provided' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO operator_rating_history (operator_id, old_rating, new_rating, reason, updated_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [operatorId, oldVal ?? newVal, newVal, reason ?? null, updated_by ?? null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23503') return res.status(404).json({ error: 'Operator not found' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/operators/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM operators WHERE id = $1', [req.params.id]);
@@ -103,27 +285,199 @@ app.delete('/api/operators/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── SHIFTS ───────────────────────────────────────────────────────────────────
-app.get('/api/shifts', async (req, res) => {
+// ─── PROJECT OPERATORS (assign existing operator to project; project-specific rate override) ─
+app.post('/api/projects/:projectId/operators', async (req, res) => {
+  if (!hasDb) {
+    res.status(503).json({ error: 'DATABASE_URL not set.' });
+    return;
+  }
+  const projectId = req.params.projectId;
+  const body = req.body;
+  const operatorId = body.operator_id ?? body.operatorId;
+  if (!operatorId) return res.status(400).json({ error: 'operator_id required' });
   try {
-    const { rows } = await pool.query('SELECT * FROM shifts ORDER BY date DESC, created_at DESC');
-    res.json(rows);
+    const { rows: existing } = await pool.query('SELECT id, full_name, phone, day_rate, tier FROM operators WHERE id = $1', [operatorId]);
+    if (!existing.length) return res.status(404).json({ error: 'Operator not found' });
+    const op = existing[0];
+    const { rows } = await pool.query(`
+      INSERT INTO project_operators (project_id, operator_id, zone, hire_stage, cred_status, cred_type, planned_days, project_day_rate, tier)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *`,
+      [
+        projectId,
+        operatorId,
+        body.zone ?? null,
+        body.hire_stage ?? 'Outreach',
+        body.cred_status ?? 'Not Started',
+        body.cred_type ?? 'None',
+        body.planned_days != null ? body.planned_days : 1,
+        body.project_day_rate != null ? body.project_day_rate : (body.day_rate != null ? body.day_rate : op.day_rate),
+        body.tier ?? op.tier ?? 'T2',
+      ]
+    );
+    const po = rows[0];
+    const merged = { ...op, project_operator_id: po.id, day_rate: po.project_day_rate ?? op.day_rate, zone: po.zone, hire_stage: po.hire_stage, cred_status: po.cred_status, cred_type: po.cred_type, planned_days: po.planned_days, tier: po.tier ?? op.tier };
+    res.status(201).json({ ...merged, risk: computeRisk(merged) });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Operator already assigned to this project' });
+    console.error('[POST /api/projects/:projectId/operators]', err.message);
+    res.status(500).json({ error: err.message || 'Database error' });
+  }
+});
+
+const PO_PATCH_WHITELIST = ['zone','hire_stage','cred_status','cred_type','planned_days','project_day_rate','tier','availability_status','available_through','availability_note','availability_updated_by'];
+
+app.patch('/api/projects/:projectId/operators/:projectOperatorId', async (req, res) => {
+  const updates = req.body;
+  const allowed = Object.keys(updates).filter(k => PO_PATCH_WHITELIST.includes(k));
+  if (!allowed.length) return res.status(400).json({ error: 'No valid fields' });
+  const hasAvailability = allowed.some(k => ['availability_status','available_through','availability_note','availability_updated_by'].includes(k));
+  const setClauses = allowed.map((f, i) => `${f} = $${i + 4}`).join(', ') + (hasAvailability ? ', availability_updated_at = NOW()' : '');
+  const values = allowed.map(f => updates[f]);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE project_operators SET ${setClauses} WHERE id = $1 AND project_id = $2 RETURNING *`,
+      [req.params.projectOperatorId, req.params.projectId, ...values]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.delete('/api/projects/:projectId/operators/:projectOperatorId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'DELETE FROM project_operators WHERE id = $1 AND project_id = $2 RETURNING id',
+      [req.params.projectOperatorId, req.params.projectId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── SHIFTS (scoped by project_id) ─────────────────────────────────────────────
+app.get('/api/shifts', async (req, res) => {
+  try {
+    const { status, date, project_id: queryProjectId, projectId: queryProjectIdAlt } = req.query;
+    const projectId = queryProjectId ?? queryProjectIdAlt ?? null;
+    console.log('[GET /api/shifts] request', { projectId, status, date });
+    let query = 'SELECT s.*, o.full_name AS operator_name FROM shifts s LEFT JOIN operators o ON s.operator_id = o.id';
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    if (projectId != null && projectId !== '') {
+      conditions.push(`s.project_id = $${paramIndex}`);
+      params.push(projectId);
+      paramIndex++;
+    }
+    if (status === 'active') {
+      conditions.push('s.end_time IS NULL');
+    } else if (status === 'closed') {
+      conditions.push('s.end_time IS NOT NULL');
+    }
+    if (date === 'today') {
+      conditions.push('(s.start_time AT TIME ZONE \'UTC\')::date = (CURRENT_TIMESTAMP AT TIME ZONE \'UTC\')::date');
+    }
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+    query += ' ORDER BY s.start_time DESC, s.created_at DESC';
+    let { rows } = await pool.query(query, params);
+    rows = rows.map((s) => {
+      if (s.end_time && s.start_time && (s.total_pay == null || Number(s.total_pay) === 0)) {
+        const calc = computeShiftPay(s.start_time, s.end_time, s.break_minutes || 0, s.day_rate || 0);
+        return { ...s, worked_hours: calc.worked_hours, overtime_hours: calc.overtime_hours, overtime_pay: calc.overtime_pay, total_pay: calc.total_pay };
+      }
+      return s;
+    });
+    res.json(rows);
+  } catch (err) {
+    console.error('[GET /api/shifts]', err.message);
+    dbDown(res, 'GET /api/shifts', []);
+  }
+});
+
+const SHIFT_PATCH_WHITELIST = ['end_time','break_minutes','notes','zone','start_time','worked_hours','overtime_hours','overtime_pay','total_pay','on_break','break_started_at','break_ended_at'];
+
+function computeShiftPay(clockIn, clockOut, breakMins, dayRate) {
+  const rate = Number(dayRate) || 0;
+  if (!clockIn || !clockOut) return { worked_hours: 0, overtime_hours: 0, overtime_pay: 0, total_pay: rate };
+  let endMs = new Date(clockOut).getTime();
+  const startMs = new Date(clockIn).getTime();
+  if (endMs <= startMs) endMs += 24 * 3600000;
+  const worked = Math.max(0, (endMs - startMs) / 3600000 - (Number(breakMins) || 0) / 60);
+  const ot = Math.max(0, worked - 8);
+  const reg = Math.min(worked, 8);
+  const hourly = rate / 8;
+  const regularPay = reg * hourly;
+  const otPay = ot * hourly * 1.5;
+  return { worked_hours: worked, overtime_hours: ot, overtime_pay: otPay, total_pay: regularPay + otPay };
+}
+
 app.post('/api/shifts', async (req, res) => {
   const s = req.body;
-  const shiftId = `SH-${Date.now()}`;
+  const operatorId = s.operator_id || s.operatorId;
+  if (!operatorId) return res.status(400).json({ error: 'operatorId required' });
+  const clockIn = s.clock_in || s.start_time;
+  const clockOut = s.clock_out || s.end_time;
+  const isClockIn = !clockOut;
   try {
+    if (isClockIn) {
+      const { rows: existing } = await pool.query('SELECT id FROM shifts WHERE operator_id = $1 AND end_time IS NULL', [operatorId]);
+      if (existing.length) return res.status(409).json({ error: 'This operator is already clocked in.', shiftId: existing[0].id });
+    }
+    const { rows: opRow } = await pool.query('SELECT full_name, day_rate FROM operators WHERE id = $1', [operatorId]);
+    if (!opRow.length) return res.status(404).json({ error: 'Operator not found' });
+    const op = opRow[0];
+    const now = new Date().toISOString();
+    const startTime = clockIn || now;
+    const endTime = clockOut || (isClockIn ? null : now);
+    const breakM = Number(s.break_minutes) || 0;
+    const zone = s.zone || s.zoneId || null;
+    let workedHours = null, overtimeHours = null, overtimePay = null, totalPay = null;
+    if (endTime) {
+      const calc = computeShiftPay(startTime, endTime, breakM, op.day_rate);
+      workedHours = calc.worked_hours;
+      overtimeHours = calc.overtime_hours;
+      overtimePay = calc.overtime_pay;
+      totalPay = calc.total_pay;
+    }
+    const shiftId = `SH-${Date.now()}`;
+    const projectId = s.project_id ?? s.projectId ?? null;
+    const d = s.date ? new Date(s.date).toISOString().slice(0, 10) : (startTime ? startTime.slice(0, 10) : new Date().toISOString().slice(0, 10));
     const { rows } = await pool.query(`
-      INSERT INTO shifts
-        (shift_id, operator_id, operator_name, zone, date,
-         start_time, end_time, break_minutes, flat_hours, ot_multiplier, day_rate)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      INSERT INTO shifts (shift_id, operator_id, operator_name, zone, date, start_time, end_time, break_minutes, flat_hours, ot_multiplier, day_rate, notes, worked_hours, overtime_hours, overtime_pay, total_pay, project_id)
+      VALUES ($1,$2,$3,$4,$5::date,$6,$7,$8,12,1.5,$9,$10,$11,$12,$13,$14,$15)
       RETURNING *`,
-      [shiftId, s.operator_id||null, s.operator_name, s.zone, s.date||null,
-       s.start_time||null, s.end_time||null, s.break_minutes||0,
-       s.flat_hours||12, s.ot_multiplier||1.5, s.day_rate||0]
+      [shiftId, operatorId, op.full_name, zone, d, startTime, endTime, breakM, op.day_rate || 0, s.notes || null, workedHours, overtimeHours, overtimePay, totalPay, projectId]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('[POST /api/shifts]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/shifts/:id', async (req, res) => {
+  let updates = { ...req.body };
+  if (updates.clockOut !== undefined) { updates.end_time = updates.clockOut === 'now' ? new Date().toISOString() : updates.clockOut; }
+  const allowed = Object.keys(updates).filter(k => SHIFT_PATCH_WHITELIST.includes(k));
+  if (!allowed.length) return res.status(400).json({ error: 'No valid fields' });
+  try {
+    const { rows: existing } = await pool.query('SELECT start_time, day_rate, break_minutes FROM shifts WHERE id = $1', [req.params.id]);
+    if (!existing.length) return res.status(404).json({ error: 'Not found' });
+    const ex = existing[0];
+    if (updates.end_time && ex.start_time && !updates.worked_hours) {
+      const calc = computeShiftPay(ex.start_time, updates.end_time, updates.break_minutes ?? ex.break_minutes ?? 0, ex.day_rate || 0);
+      updates.worked_hours = calc.worked_hours;
+      updates.overtime_hours = calc.overtime_hours;
+      updates.overtime_pay = calc.overtime_pay;
+      updates.total_pay = calc.total_pay;
+    }
+    const allKeys = [...new Set([...allowed, ...(updates.worked_hours != null ? ['worked_hours','overtime_hours','overtime_pay','total_pay'] : [])])].filter(k => updates[k] != null);
+    const setClauses = allKeys.map((f, i) => `${f} = $${i + 2}`).join(', ');
+    const values = allKeys.map(f => updates[f]);
+    const { rows } = await pool.query(
+      `UPDATE shifts SET ${setClauses} WHERE id = $1 RETURNING *`,
+      [req.params.id, ...values]
     );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -141,15 +495,15 @@ app.get('/api/events', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM events ORDER BY id ASC LIMIT 1');
     res.json(rows[0] || {});
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('[GET /api/events]', err.message);
+    dbDown(res, 'GET /api/events', {});
+  }
 });
-
-const ALLOWED_EVENT_FIELDS = new Set(['event_name','start_date','end_date','labor_budget_cap']);
 
 app.patch('/api/events', async (req, res) => {
   const updates = req.body;
-  const fields = Object.keys(updates).filter(f => ALLOWED_EVENT_FIELDS.has(f));
-  if (!fields.length) return res.status(400).json({ error: 'No valid fields' });
+  const fields = Object.keys(updates);
   const setClauses = fields.map((f, i) => `${f} = $${i + 1}`).join(', ');
   const values = fields.map(f => updates[f]);
   try {
@@ -161,49 +515,225 @@ app.patch('/api/events', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── STATS (computed server-side) ────────────────────────────────────────────
+// Stage weights for forecast_labor (pipeline stages except Passed). Normalized lowercase.
+const STAGE_WEIGHTS = {
+  confirmed: 1.0,
+  'loa signed': 0.8,
+  offered: 0.6,
+  interviewing: 0.4,
+  screened: 0.25,
+  outreach: 0.1,
+  responded: 0.1,
+  onboarded: 0.1,
+  added: 0.1,
+  passed: 0,
+};
+
+function getStageWeight(hireStage) {
+  const key = (hireStage || '').toLowerCase().trim();
+  return STAGE_WEIGHTS[key] ?? 0;
+}
+
+// ─── STATS (Executive dashboard: project-scoped when project_id provided) ─
+// When project_id set: operators and labor from project_operators join (effective rate = project_day_rate ?? day_rate).
 app.get('/api/stats', async (req, res) => {
   try {
-    const [{ rows: ops }, { rows: shifts }, { rows: events }] = await Promise.all([
-      pool.query('SELECT * FROM operators'),
-      pool.query('SELECT * FROM shifts'),
+    const projectId = req.query.project_id ?? req.query.projectId ?? null;
+    console.log('[GET /api/stats] request', { projectId });
+    const projectScoped = projectId != null && String(projectId).trim() !== '';
+
+    const shiftWhere = projectScoped ? ' WHERE project_id = $1' : '';
+    const shiftParams = projectScoped ? [projectId] : [];
+
+    const opJoin = projectScoped
+      ? `FROM operators o INNER JOIN project_operators po ON po.operator_id = o.id AND po.project_id = $1
+         WHERE o.is_archived = false`
+      : 'FROM operators';
+    const opSelect = projectScoped
+      ? `SELECT o.id, o.reliability, o.late_to_screen, o.rate_instability,
+         COALESCE(po.project_day_rate, o.day_rate) AS day_rate,
+         COALESCE(po.planned_days, o.planned_days) AS planned_days,
+         po.hire_stage AS hire_stage, po.cred_status AS cred_status`
+      : 'SELECT id, hire_stage, cred_status, day_rate, planned_days, reliability, late_to_screen, rate_instability';
+    const opParams = projectScoped ? [projectId] : [];
+
+    const [
+      { rows: ops },
+      { rows: shifts },
+      { rows: events },
+      { rows: committedRows },
+      { rows: forecastRows },
+    ] = await Promise.all([
+      pool.query(`${opSelect} ${opJoin}`, opParams),
+      pool.query('SELECT * FROM shifts' + shiftWhere, shiftParams),
       pool.query('SELECT * FROM events ORDER BY id ASC LIMIT 1'),
+      projectScoped
+        ? pool.query(
+            `SELECT COALESCE(SUM(
+              COALESCE(po.project_day_rate, o.day_rate, 0)::numeric * CASE WHEN COALESCE(po.planned_days, o.planned_days, 0) > 0 THEN po.planned_days ELSE 1 END
+            ), 0)::integer AS committed_labor
+            FROM operators o INNER JOIN project_operators po ON po.operator_id = o.id AND po.project_id = $1
+            WHERE o.is_archived = false AND o.active IS NOT FALSE AND po.hire_stage = 'Confirmed'`,
+            [projectId]
+          )
+        : pool.query(
+            `SELECT COALESCE(SUM(
+              COALESCE(day_rate, 0)::numeric * CASE WHEN COALESCE(planned_days, 0) > 0 THEN planned_days ELSE 1 END
+            ), 0)::integer AS committed_labor
+            FROM operators WHERE hire_stage = 'Confirmed' AND (active IS NOT FALSE)`
+          ),
+      projectScoped
+        ? pool.query(
+            `SELECT COALESCE(SUM(
+              COALESCE(po.project_day_rate, o.day_rate, 0)::numeric * COALESCE(po.planned_days, o.planned_days, 0) * (
+                CASE
+                  WHEN LOWER(TRIM(po.hire_stage)) = 'confirmed' THEN 1.0
+                  WHEN LOWER(TRIM(po.hire_stage)) = 'loa signed' THEN 0.8
+                  WHEN LOWER(TRIM(po.hire_stage)) = 'offered' THEN 0.6
+                  WHEN LOWER(TRIM(po.hire_stage)) = 'interviewing' THEN 0.4
+                  WHEN LOWER(TRIM(po.hire_stage)) = 'screened' THEN 0.25
+                  WHEN LOWER(TRIM(po.hire_stage)) IN ('onboarded', 'outreach', 'added', 'responded') THEN 0.10
+                  ELSE 0
+                END
+              )
+            ), 0)::integer AS forecast_labor
+            FROM operators o INNER JOIN project_operators po ON po.operator_id = o.id AND po.project_id = $1
+            WHERE o.is_archived = false`,
+            [projectId]
+          )
+        : pool.query(
+            `SELECT COALESCE(SUM(
+              COALESCE(day_rate, 0)::numeric * COALESCE(planned_days, 0) * (
+                CASE
+                  WHEN LOWER(TRIM(hire_stage)) = 'confirmed' THEN 1.0
+                  WHEN LOWER(TRIM(hire_stage)) = 'loa signed' THEN 0.8
+                  WHEN LOWER(TRIM(hire_stage)) = 'offered' THEN 0.6
+                  WHEN LOWER(TRIM(hire_stage)) = 'interviewing' THEN 0.4
+                  WHEN LOWER(TRIM(hire_stage)) = 'screened' THEN 0.25
+                  WHEN LOWER(TRIM(hire_stage)) IN ('onboarded', 'outreach', 'added', 'responded') THEN 0.10
+                  ELSE 0
+                END
+              )
+            ), 0)::integer AS forecast_labor
+            FROM operators`
+          ),
     ]);
 
     const event = events[0] || {};
-    const confirmed = ops.filter(o => o.hire_stage === 'Confirmed');
-    const credApproved = ops.filter(o => o.cred_status === 'Approved');
-    const credDenied = ops.filter(o => o.cred_status === 'Denied');
+    // When project-scoped, budget_cap comes from client (project); API returns 0 so client uses project.budget.laborCap
+    const budget_cap = projectScoped ? 0 : (event.labor_budget_cap != null ? Number(event.labor_budget_cap) : 0);
+
+    const committed_labor = Math.round(Number(committedRows[0]?.committed_labor ?? 0));
+    const forecast_labor = Number(forecastRows[0]?.forecast_labor ?? 0);
+
+    const confirmed = ops.filter(o => (o.hire_stage || '').trim() === 'Confirmed');
+    const credentialed = ops.filter(o => (o.cred_status || '').trim() === 'Approved');
+    const credDenied = ops.filter(o => (o.cred_status || '').trim() === 'Denied');
     const highRisk = ops.filter(o => computeRisk(o) === 'HIGH');
 
-    const calcShiftPay = (s) => {
-      const worked = s.start_time && s.end_time
-        ? Math.max(0, (new Date(s.end_time) - new Date(s.start_time)) / 3600000 - (s.break_minutes || 0) / 60)
-        : 0;
-      const ot = Math.max(0, worked - (s.flat_hours || 12));
-      const hourly = (s.day_rate || 0) / 12;
-      const otPay = ot * hourly * (s.ot_multiplier || 1.5);
-      return { total: (s.day_rate || 0) + otPay, ot: otPay };
+    // actual_labor = SUM(total_pay) from closed shifts (project-scoped when project_id set); otSpend = SUM(overtime_pay)
+    let actual_labor = 0;
+    let otSpend = 0;
+    for (const s of shifts) {
+      if (s.end_time == null) continue;
+      const storedTotal = s.total_pay != null && !Number.isNaN(Number(s.total_pay)) ? Number(s.total_pay) : null;
+      const storedOt = s.overtime_pay != null && !Number.isNaN(Number(s.overtime_pay)) ? Number(s.overtime_pay) : null;
+      const useStored = storedTotal != null && storedTotal > 0;
+      if (useStored) {
+        actual_labor += storedTotal;
+        otSpend += storedOt != null ? storedOt : 0;
+      } else if (s.start_time && s.end_time) {
+        const calc = computeShiftPay(s.start_time, s.end_time, s.break_minutes || 0, s.day_rate || 0);
+        actual_labor += calc.total_pay;
+        otSpend += calc.overtime_pay;
+      }
+    }
+    actual_labor = Math.round(actual_labor);
+    otSpend = Math.round(otSpend);
+
+    const remaining = Math.round(budget_cap - Math.max(actual_labor, committed_labor));
+
+    const counts = {
+      total_operators: ops.length,
+      confirmed: confirmed.length,
+      credentialed: credentialed.length,
+      cred_denied: credDenied.length,
+      high_risk: highRisk.length,
     };
 
-    const actualLabor = shifts.reduce((a, s) => a + calcShiftPay(s).total, 0);
-    const otSpend = shifts.reduce((a, s) => a + calcShiftPay(s).ot, 0);
-    const projectedLabor = confirmed.reduce((a, o) => a + (o.day_rate || 0), 0);
-
     res.json({
+      budget_cap: Math.round(budget_cap),
+      actual_labor,
+      committed_labor,
+      forecast_labor,
+      remaining,
+      counts,
+      otSpend,
       total: ops.length,
       confirmed: confirmed.length,
-      credApproved: credApproved.length,
+      credApproved: credentialed.length,
       credDenied: credDenied.length,
       highRisk: highRisk.length,
-      actualLabor, otSpend, projectedLabor,
-      remaining: (event.labor_budget_cap || 0) - actualLabor,
-      budget: event.labor_budget_cap || 0,
+      budgetCap: Math.round(budget_cap),
+      actualLabor: actual_labor,
       eventName: event.event_name || '',
       eventStart: event.start_date || '',
       eventEnd: event.end_date || '',
+      budget: budget_cap,
     });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error('[GET /api/stats]', err.message);
+    const fallbackCounts = { total_operators: 0, confirmed: 0, credentialed: 0, cred_denied: 0, high_risk: 0 };
+    dbDown(res, 'GET /api/stats', {
+      budget_cap: 0, actual_labor: 0, committed_labor: 0, forecast_labor: 0,
+      remaining: 0, counts: fallbackCounts, otSpend: 0,
+      total: 0, confirmed: 0, credApproved: 0, credDenied: 0, highRisk: 0,
+      budgetCap: 0, actualLabor: 0, eventName: '', eventStart: '', eventEnd: '', budget: 0,
+    });
+  }
+});
+
+// ─── METRICS (minimal aggregate for Executive; single source of truth from DB) ─
+app.get('/api/metrics', async (req, res) => {
+  try {
+    const [
+      { rows: committedRows },
+      { rows: shifts },
+      { rows: events },
+    ] = await Promise.all([
+      pool.query(`
+        SELECT COALESCE(SUM(
+          COALESCE(day_rate, 0)::numeric * CASE WHEN COALESCE(planned_days, 0) > 0 THEN planned_days ELSE 1 END
+        ), 0)::integer AS committed_labor
+        FROM operators
+        WHERE hire_stage = 'Confirmed' AND (active IS NOT FALSE)
+      `),
+      pool.query('SELECT * FROM shifts'),
+      pool.query('SELECT * FROM events ORDER BY id ASC LIMIT 1'),
+    ]);
+    const budget_cap = (events[0] && events[0].labor_budget_cap != null) ? Number(events[0].labor_budget_cap) : 0;
+    const committed_labor = Math.round(Number(committedRows[0]?.committed_labor ?? 0));
+    let actual_labor = 0;
+    for (const s of shifts) {
+      if (s.end_time == null) continue;
+      const storedTotal = s.total_pay != null && !Number.isNaN(Number(s.total_pay)) ? Number(s.total_pay) : null;
+      const useStored = storedTotal != null && storedTotal > 0;
+      if (useStored) {
+        actual_labor += storedTotal;
+      } else if (s.start_time && s.end_time) {
+        const calc = computeShiftPay(s.start_time, s.end_time, s.break_minutes || 0, s.day_rate || 0);
+        actual_labor += calc.total_pay;
+      }
+    }
+    actual_labor = Math.round(actual_labor);
+    const remaining = Math.round(budget_cap - Math.max(actual_labor, committed_labor));
+    res.json({ committed_labor, actual_labor, remaining, budget_cap });
+  } catch (err) {
+    console.error('[GET /api/metrics]', err.message);
+    dbDown(res, 'GET /api/metrics', {
+      committed_labor: 0, actual_labor: 0, remaining: 0, budget_cap: 0,
+    });
+  }
 });
 
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
@@ -213,13 +743,45 @@ app.get('/api/health', async (req, res) => {
   res.status(200).json({ ok: true, db: dbOk, service: 'memehouse-ops', ts: new Date().toISOString() });
 });
 
-// ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
-app.get('*', (req, res) => {
-  res.sendFile(path.join(clientBuild, 'index.html'));
+// ─── DEMO SEED (run server-side seed so DB and app use same DATABASE_URL) ─────
+app.post('/api/demo/seed', async (req, res) => {
+  if (!hasDb) {
+    return res.status(503).json({ error: 'DATABASE_URL not set. Add it to server/.env to use demo seed.' });
+  }
+  const { execSync } = require('child_process');
+  const repoRoot = path.join(__dirname, '..');
+  try {
+    execSync(`node "${path.join(repoRoot, 'scripts', 'seed-demo.js')}"`, {
+      cwd: repoRoot,
+      stdio: 'pipe',
+      env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
+    });
+    res.status(200).json({ ok: true, message: 'Demo seed complete. Reload the app.' });
+  } catch (err) {
+    console.error('[POST /api/demo/seed]', err.message);
+    const stderr = err.stderr ? err.stderr.toString() : '';
+    res.status(500).json({ error: err.message || 'Seed failed', detail: stderr.slice(0, 500) });
+  }
 });
+
+// ─── SPA FALLBACK (production only) / DEV ROOT ────────────────────────────────
+if (productionBuildExists) {
+  app.get('*', (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+} else {
+  app.get('/', (req, res) =>
+    res.json({ ok: true, message: 'API running; use Vite on :5173 for UI' })
+  );
+  app.get('*', (req, res) =>
+    res.status(404).json({ error: 'Not found', message: 'In dev use http://localhost:5173 for UI' })
+  );
+}
 
 // ─── START ────────────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 MemeHouse Ops running on :${PORT}`);
+  console.log(`   DATABASE_URL: ${hasDb ? 'set' : 'NOT SET (DB operations will fail)'}`);
+  if (!isProduction) {
+    console.log('   Dev: API only; UI at http://localhost:5173');
+  }
   initDB().catch(err => console.error('DB init:', err.message));
 });

@@ -1,0 +1,569 @@
+/* Projects Launcher — layout and cards only; background from global Layout (app-background) */
+
+.projects-launcher {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+  padding: clamp(24px, 4vw, 48px);
+}
+
+/* Top row */
+.projects-launcher__top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: clamp(20px, 3vw, 32px) clamp(24px, 4vw, 48px);
+  box-sizing: border-box;
+}
+
+/* Invisible spacer so pill stays centered (same width as right button) */
+.projects-launcher__top-spacer {
+  min-width: 120px;
+}
+
+/* Segmented pill — light glass */
+.segmented-pill {
+  position: relative;
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  padding: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.segmented-pill__knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  bottom: 4px;
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: transform 0.25s ease;
+  pointer-events: none;
+}
+
+.segmented-pill__tab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.segmented-pill__tab--active {
+  color: #111827;
+}
+
+.segmented-pill__tab:hover:not(.segmented-pill__tab--active) {
+  color: #374151;
+}
+
+.segmented-pill__icon {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.projects-launcher__pill-btn {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.projects-launcher__pill-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Main title above cards */
+.memehouse-title {
+  position: relative;
+  z-index: 1;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(42px, 6vw, 84px);
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: #F5E400;
+  text-align: center;
+  margin: 0 0 clamp(48px, 8vw, 80px);
+}
+
+/* Three floating translucent cards — perspective for 3D hover */
+.projects-cards {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 64px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  perspective: 1200px;
+}
+
+.project-card {
+  width: 240px;
+  height: 320px;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px 20px;
+  box-sizing: border-box;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+  transition: transform 0.32s ease, box-shadow 0.32s ease;
+  transform-style: preserve-3d;
+  position: relative;
+}
+
+/* Optional: very subtle radial glow behind hovered card */
+.project-card::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 100, 0.08) 0%, transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  transition: opacity 0.35s ease;
+}
+
+.project-card:hover {
+  transform: translateY(-8px) rotateX(4deg);
+  box-shadow: 0 28px 56px rgba(0, 0, 0, 0.18);
+}
+
+.project-card:hover::before {
+  opacity: 1;
+}
+
+.card-tag {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 20px;
+}
+
+.card-tag--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.card-tag--archive {
+  background: rgba(107, 114, 128, 0.12);
+  color: #4b5563;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+/* Project status pills (active / completed / archived) — soft pill system */
+.project-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.project-status-badge__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.project-status-badge--active {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.project-status-badge--active .project-status-badge__dot {
+  background: #16a34a;
+}
+
+.project-status-badge--completed {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.project-status-badge--archived {
+  background: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+.card-icon {
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  color: #111827;
+  margin-bottom: 16px;
+  font-family: "Inter", sans-serif;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .projects-cards {
+    gap: 32px;
+  }
+}
+
+/* Past / current panel: layout now inline (max-w-[1400px] mx-auto) in ProjectsLauncher.jsx */
+
+@keyframes heroFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.past-panel {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.projects-launcher__past-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.projects-launcher__past-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+  margin: 0;
+}
+
+.past-panel__frost {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  padding: 20px 24px;
+}
+
+.past-panel__empty {
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+  margin: 0;
+  padding: 32px;
+}
+
+.past-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.past-panel__list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.past-panel__list-item:last-child {
+  border-bottom: none;
+}
+
+.past-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  padding: 14px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.past-panel__archive-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.past-panel__archive-btn:hover {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.past-panel__row:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.past-panel__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  flex: 1;
+  min-width: 0;
+}
+
+.past-panel__meta {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.past-panel__status {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Add Project modal — light glass */
+.hero-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  box-sizing: border-box;
+  animation: heroModalBg 0.2s ease;
+}
+
+@keyframes heroModalBg {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.hero-modal {
+  background: #f0eeeb;
+  border-radius: 24px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: heroModalIn 0.25s ease;
+}
+
+@keyframes heroModalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.hero-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.hero-modal__title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #111827;
+  margin: 0;
+}
+
+.hero-modal__close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  color: #374151;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.hero-modal__close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.hero-modal__body {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.hero-modal__step-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 16px;
+}
+
+.hero-modal__field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.hero-modal__field span {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.hero-modal__field input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  color: #111827;
+  box-sizing: border-box;
+}
+
+.hero-modal__field input:focus {
+  outline: none;
+  border-color: #F5E400;
+  box-shadow: 0 0 0 2px rgba(245, 228, 0, 0.2);
+}
+
+.hero-modal__hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 12px 0 0;
+}
+
+.hero-modal__summary {
+  margin: 0;
+  font-size: 14px;
+}
+
+.hero-modal__summary dt {
+  font-weight: 600;
+  color: #6b7280;
+  margin-top: 12px;
+}
+
+.hero-modal__summary dt:first-child { margin-top: 0; }
+
+.hero-modal__summary dd {
+  margin: 4px 0 0;
+  color: #111827;
+}
+
+.hero-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.hero-modal__btn {
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.hero-modal__btn--secondary {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+}
+
+.hero-modal__btn--secondary:hover {
+  background: #f9fafb;
+}
+
+.hero-modal__btn--primary {
+  border: none;
+  background: #111827;
+  color: #fff;
+}
+
+.hero-modal__btn--primary:hover {
+  background: #1f2937;
+}

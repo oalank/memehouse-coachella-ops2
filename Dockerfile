@@ -13,7 +13,7 @@ WORKDIR /app
 COPY server/package.json ./
 RUN npm install --production
 COPY server/ ./
-COPY --from=builder /app/client/dist ./client/build
+COPY --from=builder /app/client/dist ./client/dist
 
 ENV NODE_ENV=production
 EXPOSE 3001

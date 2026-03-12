@@ -1,0 +1,51 @@
+import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
+
+interface GlassCardProps {
+  children: ReactNode;
+  className?: string;
+  glowColor?: "cyan" | "violet" | "green" | "amber" | "pink" | "red" | "blue" | "gray";
+  hoverable?: boolean;
+  onClick?: () => void;
+}
+
+const glowMap = {
+  cyan: "glow-cyan hover-glow-cyan",
+  violet: "glow-violet hover-glow-violet",
+  green: "glow-green hover-glow-green",
+  amber: "glow-amber hover-glow-amber",
+  pink: "glow-pink hover-glow-pink",
+  red: "glow-red hover-glow-red",
+  blue: "glow-blue hover-glow-blue",
+  gray: "glow-gray hover-glow-gray",
+};
+
+/* Subtle colored top-border accent for each glow color */
+const borderTopMap = {
+  cyan: "border-t border-t-glow-cyan/20",
+  violet: "border-t border-t-glow-violet/20",
+  green: "border-t border-t-glow-green/20",
+  amber: "border-t border-t-glow-amber/20",
+  pink: "border-t border-t-glow-pink/20",
+  red: "border-t border-t-glow-red/20",
+  blue: "border-t border-t-glow-blue/20",
+  gray: "",
+};
+
+export const GlassCard = ({ children, className, glowColor, hoverable = false, onClick }: GlassCardProps) => {
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        "glass rounded-2xl p-6",
+        glowColor && glowMap[glowColor],
+        glowColor && borderTopMap[glowColor],
+        hoverable && "card-lift cursor-pointer",
+        onClick && !hoverable && "cursor-pointer",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+};
