@@ -3,9 +3,22 @@
 // 1) VITE_API_BASE_URL (preferred)
 // 2) VITE_API_URL (fallback)
 // 3) Empty string (dev-only, so Vite proxy handles /api)
+// If the value looks like "KEY=URL" (e.g. mis-injected env), use only the URL part so we never concatenate into the page path.
+
+function normalizeBase(value) {
+  const s = String(value ?? "").trim();
+  if (!s) return "";
+  // If value looks like "VITE_API_BASE_URL=https://..." use only the part after the last "=" that is a URL
+  if (s.includes("=")) {
+    const afterEq = s.slice(s.lastIndexOf("=") + 1).trim();
+    if (afterEq.startsWith("http://") || afterEq.startsWith("https://")) return afterEq.replace(/\/$/, "");
+  }
+  if (s.startsWith("http://") || s.startsWith("https://")) return s.replace(/\/$/, "");
+  return "";
+}
 
 const rawBase = import.meta.env?.VITE_API_BASE_URL ?? import.meta.env?.VITE_API_URL ?? "";
-export const API_BASE = String(rawBase).replace(/\/$/, "");
+export const API_BASE = normalizeBase(rawBase);
 
 if (import.meta.env.PROD && !API_BASE) {
   console.error(
@@ -33,7 +46,8 @@ function parseJsonResponse(txt, path) {
 
 export async function apiFetch(path, opts = {}) {
   try {
-    const url = API_BASE ? `${API_BASE}${path}` : path;
+    const normalizedPath = path && !path.startsWith("/") ? `/${path}` : path;
+    const url = API_BASE ? `${API_BASE}${normalizedPath}` : normalizedPath;
     const res = await fetch(url, {
       headers: { "Content-Type": "application/json" },
       ...opts,
