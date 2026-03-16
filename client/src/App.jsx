@@ -315,6 +315,7 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
     );
   }
   const fmt$ = n => (n == null || Number.isNaN(n)) ? '$0' : '$' + Math.round(n).toLocaleString();
+  const fmtCurrencySigned = n => (n == null || Number.isNaN(n)) ? '$0' : (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString();
   // Use selected project's budget cap when available; otherwise stats from API; never hardcode 80000
   const budgetCap = (budgetCapFromProject != null && budgetCapFromProject !== '')
     ? Number(budgetCapFromProject)
@@ -324,7 +325,11 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
   const actual = actualLabor; // Actual Labor = all labor tied to project (unchanged)
   const committed = ops != null ? calculateCommittedLabor(ops, event, committedStages) : (stats?.committed_labor ?? 0);
   const forecast = stats?.forecast_labor ?? 0;
-  // Remaining = budgetCap − (max(actualLabor, committed) + actualExpensesTotal)
+  // Financial section: remaining = budget_cap − committed (can be negative)
+  const remainingFinancial = budgetCap - committed;
+  const remainingFinancialColor = remainingFinancial < 0 ? '#ef4444' : (budgetCap > 0 && remainingFinancial <= budgetCap * 0.05 ? '#f59e0b' : '#22c55e');
+  const remainingFinancialLabel = remainingFinancial < 0 ? 'Over budget' : (remainingFinancial <= (budgetCap * 0.05) && budgetCap > 0 ? 'Low' : 'Healthy');
+  // Remaining (for burn/runway): budgetCap − (max(actualLabor, committed) + actualExpensesTotal)
   const totalSpend = Math.max(actualLabor, committed) + actualExpensesTotal;
   const remaining = Math.max(0, budgetCap - totalSpend);
   const otSpend = stats?.otSpend ?? 0;
@@ -393,15 +398,27 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
         <HudCard header="// EXECUTIVE OVERVIEW">
           <p className="text-xs text-muted-foreground leading-relaxed">Budget updates based on committed ops + logged shifts</p>
         </HudCard>
-        {/* Metrics grid — Lovable layout; order optimized for finance scanning */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {/* Primary financial row — ONLY these 3 cards; order: 1. Budget Cap, 2. Committed, 3. Remaining */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-section="executive-financial-top">
           <StatCard label="Budget Cap" value={fmt$(budgetCap)} helper="Total labor budget" accentColor="#6366f1" bars={4} />
-          <StatCard label="Remaining Balance" value={fmt$(remaining)} helper="Budget − (labor + expenses)" accentColor={healthRemaining?.color ?? "#22c55e"} statusLabel={healthRemaining?.label} bars={3} />
+          <StatCard label="Committed" value={fmt$(committed)} helper="Confirmed ops (rate × days)" accentColor="#f59e0b" bars={4} />
+          <StatCard
+            label="Remaining"
+            value={fmtCurrencySigned(remainingFinancial)}
+            helper="Budget Cap − Committed"
+            accentColor={remainingFinancialColor}
+            statusLabel={remainingFinancialLabel}
+            bars={3}
+          />
+        </div>
+        {/* Downstream metrics — below the primary financial row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Actual Expenses" value={fmt$(actualExpensesTotal)} helper="Non-labor production expenses" accentColor="#0ea5e9" bars={2} />
           <StatCard label="Daily Burn" value={dailyBurnLabel} helper={dailyBurnHelper} accentColor={healthBurn?.color ?? "#0ea5e9"} statusLabel={healthBurn?.label} bars={3} />
+          <StatCard label="Runway" value={runwayLabel} helper="Remaining ÷ burn rate" accentColor={healthRunway?.color ?? "#06b6d4"} statusLabel={healthRunway?.label} bars={3} />
+          <StatCard label="Remaining Balance" value={fmt$(remaining)} helper="Budget − (labor + expenses)" accentColor={healthRemaining?.color ?? "#22c55e"} statusLabel={healthRemaining?.label} bars={3} />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Runway" value={runwayLabel} helper="Remaining ÷ burn rate" accentColor={healthRunway?.color ?? "#06b6d4"} statusLabel={healthRunway?.label} bars={3} />
           <StatCard label="Actual Labor" value={fmt$(actual)} helper="From logged shifts" accentColor={healthActual?.color ?? "#22c55e"} statusLabel={healthActual?.label} bars={3} />
           <StatCard
             label="Committed Labor"
