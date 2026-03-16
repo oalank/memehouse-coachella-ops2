@@ -1,21 +1,14 @@
-require('dotenv').config({ path: require('path').join(__dirname, '.env') });
-
 const express = require('express');
 const fs = require('fs');
-const { Pool } = require('pg');
 const cors = require('cors');
 const path = require('path');
 
+const { pool, hasDb } = require('./src/config');
+const operatorsRoutes = require('./src/routes/operators.routes');
+const { apiErrorHandler } = require('./src/middleware/apiErrorHandler');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// ─── DB ───────────────────────────────────────────────────────────────────────
-const hasDb = !!process.env.DATABASE_URL;
-const isLocalDb = process.env.DATABASE_URL?.includes('localhost');
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: hasDb && !isLocalDb ? { rejectUnauthorized: false } : false,
-});
 
 // ─── STATIC: production only, client/dist only; NEVER client/build in dev ───────
 const clientDist = path.join(__dirname, '../client/dist');
@@ -149,211 +142,8 @@ function dbDown(res, route, fallback) {
   res.status(200).json(fallback);
 }
 
-// ─── OPERATORS (global list or project roster via project_operators) ──────────
-app.get('/api/operators', async (req, res) => {
-  try {
-    const projectId = req.query.project_id || req.query.projectId || null;
-    const includeArchived = req.query.includeArchived === 'true' || req.query.includeArchived === '1';
-
-    if (projectId != null && projectId !== '') {
-      // Project roster: join operators + project_operators, effective rate = project_day_rate ?? day_rate
-      let query = `
-        SELECT o.*, po.id AS project_operator_id,
-          COALESCE(po.project_day_rate, o.day_rate) AS day_rate,
-          COALESCE(po.tier, o.tier) AS tier,
-          po.zone AS zone,
-          po.hire_stage AS hire_stage,
-          po.cred_status AS cred_status,
-          po.cred_type AS cred_type,
-          po.planned_days AS planned_days,
-          po.availability_status AS availability_status,
-          po.available_through AS available_through,
-          po.availability_note AS availability_note,
-          po.availability_updated_by AS availability_updated_by,
-          po.availability_updated_at AS availability_updated_at
-        FROM operators o
-        INNER JOIN project_operators po ON po.operator_id = o.id AND po.project_id = $1
-        WHERE 1=1`;
-      const params = [projectId];
-      if (!includeArchived) {
-        query += ' AND o.is_archived = false';
-      }
-      query += ' ORDER BY o.created_at ASC';
-      const { rows } = await pool.query(query, params);
-      const ops = rows.map(o => {
-        const { project_operator_id, ...rest } = o;
-        return { ...rest, project_operator_id, risk: computeRisk(rest) };
-      });
-      return res.json(ops);
-    }
-
-    // Global list (for "select existing" picker)
-    let query = 'SELECT id, op_id, full_name, phone, day_rate, tier, is_archived, created_at FROM operators WHERE 1=1';
-    const params = [];
-    if (!includeArchived) {
-      query += ' AND is_archived = false';
-    }
-    query += ' ORDER BY full_name ASC';
-    const { rows } = await pool.query(query, params);
-    res.json(rows);
-  } catch (err) {
-    console.error('[GET /api/operators]', err.message);
-    dbDown(res, 'GET /api/operators', []);
-  }
-});
-
-app.post('/api/operators', async (req, res) => {
-  if (!hasDb) {
-    res.status(503).json({ error: 'DATABASE_URL not set. Add it to server/.env and restart.' });
-    return;
-  }
-  const o = req.body;
-  const opId = `OP-${Date.now()}`;
-  try {
-    const gearVal = Array.isArray(o.gear) ? o.gear : (o.gear ? [].concat(o.gear) : []);
-    const { rows } = await pool.query(`
-      INSERT INTO operators
-        (op_id, full_name, tier, zone, hire_stage, cred_status, cred_type,
-         day_rate, planned_days, source, is_buffer, phone, reel, refs, loa, w9,
-         reliability, worked_with_memehouse, late_to_screen, rate_instability,
-         gear, perf_score, rehire_eligible, post_notes, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
-      RETURNING *`,
-      [opId, o?.full_name ?? '', o.tier||'T2', o.zone||null, o.hire_stage||'Outreach',
-       o.cred_status||'Not Started', o.cred_type||'None', o.day_rate||0,
-       o.planned_days != null ? o.planned_days : 1,
-       o.source||null, o.is_buffer||false, o.phone||null,
-       o.reel||false, o.refs||false, o.loa||false, o.w9||false,
-       o.reliability||3, o.worked_with_memehouse||false,
-       o.late_to_screen||false, o.rate_instability||false,
-       gearVal, o.perf_score||null, o.rehire_eligible||null,
-       o.post_notes||null, o.notes||null]
-    );
-    res.status(201).json({ ...rows[0], risk: computeRisk(rows[0]) });
-  } catch (err) {
-    console.error('[POST /api/operators]', err.message);
-    console.error('[POST /api/operators] Stack:', err.stack);
-    res.status(500).json({ error: err.message || 'Database error' });
-  }
-});
-
-const OP_PATCH_WHITELIST = ['full_name','phone','day_rate','zone','cred_status','hire_stage','cred_type','planned_days','notes','active','is_archived','reliability','worked_with_memehouse','late_to_screen','rate_instability'];
-
-app.patch('/api/operators/:id', async (req, res) => {
-  const updates = req.body;
-  const allowed = Object.keys(updates).filter(k => OP_PATCH_WHITELIST.includes(k));
-  if (!allowed.length) return res.status(400).json({ error: 'No valid fields' });
-  const setClauses = allowed.map((f, i) => `${f} = $${i + 2}`).join(', ');
-  const values = allowed.map(f => updates[f]);
-  try {
-    const { rows } = await pool.query(
-      `UPDATE operators SET ${setClauses} WHERE id = $1 RETURNING *`,
-      [req.params.id, ...values]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json({ ...rows[0], risk: computeRisk(rows[0]) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/operators/:id/rating-history', async (req, res) => {
-  const operatorId = req.params.id;
-  const { old_rating, new_rating, reason, updated_by } = req.body || {};
-  if (new_rating == null || (Number(new_rating) < 1 || Number(new_rating) > 5)) {
-    return res.status(400).json({ error: 'new_rating required (1-5)' });
-  }
-  const oldVal = old_rating != null ? Number(old_rating) : null;
-  const newVal = Number(new_rating);
-  if (oldVal != null && (oldVal < 1 || oldVal > 5)) return res.status(400).json({ error: 'old_rating must be 1-5 if provided' });
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO operator_rating_history (operator_id, old_rating, new_rating, reason, updated_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
-      [operatorId, oldVal ?? newVal, newVal, reason ?? null, updated_by ?? null]
-    );
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    if (err.code === '23503') return res.status(404).json({ error: 'Operator not found' });
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/operators/:id', async (req, res) => {
-  try {
-    await pool.query('DELETE FROM operators WHERE id = $1', [req.params.id]);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// ─── PROJECT OPERATORS (assign existing operator to project; project-specific rate override) ─
-app.post('/api/projects/:projectId/operators', async (req, res) => {
-  if (!hasDb) {
-    res.status(503).json({ error: 'DATABASE_URL not set.' });
-    return;
-  }
-  const projectId = req.params.projectId;
-  const body = req.body;
-  const operatorId = body.operator_id ?? body.operatorId;
-  if (!operatorId) return res.status(400).json({ error: 'operator_id required' });
-  try {
-    const { rows: existing } = await pool.query('SELECT id, full_name, phone, day_rate, tier FROM operators WHERE id = $1', [operatorId]);
-    if (!existing.length) return res.status(404).json({ error: 'Operator not found' });
-    const op = existing[0];
-    const { rows } = await pool.query(`
-      INSERT INTO project_operators (project_id, operator_id, zone, hire_stage, cred_status, cred_type, planned_days, project_day_rate, tier)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *`,
-      [
-        projectId,
-        operatorId,
-        body.zone ?? null,
-        body.hire_stage ?? 'Outreach',
-        body.cred_status ?? 'Not Started',
-        body.cred_type ?? 'None',
-        body.planned_days != null ? body.planned_days : 1,
-        body.project_day_rate != null ? body.project_day_rate : (body.day_rate != null ? body.day_rate : op.day_rate),
-        body.tier ?? op.tier ?? 'T2',
-      ]
-    );
-    const po = rows[0];
-    const merged = { ...op, project_operator_id: po.id, day_rate: po.project_day_rate ?? op.day_rate, zone: po.zone, hire_stage: po.hire_stage, cred_status: po.cred_status, cred_type: po.cred_type, planned_days: po.planned_days, tier: po.tier ?? op.tier };
-    res.status(201).json({ ...merged, risk: computeRisk(merged) });
-  } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'Operator already assigned to this project' });
-    console.error('[POST /api/projects/:projectId/operators]', err.message);
-    res.status(500).json({ error: err.message || 'Database error' });
-  }
-});
-
-const PO_PATCH_WHITELIST = ['zone','hire_stage','cred_status','cred_type','planned_days','project_day_rate','tier','availability_status','available_through','availability_note','availability_updated_by'];
-
-app.patch('/api/projects/:projectId/operators/:projectOperatorId', async (req, res) => {
-  const updates = req.body;
-  const allowed = Object.keys(updates).filter(k => PO_PATCH_WHITELIST.includes(k));
-  if (!allowed.length) return res.status(400).json({ error: 'No valid fields' });
-  const hasAvailability = allowed.some(k => ['availability_status','available_through','availability_note','availability_updated_by'].includes(k));
-  const setClauses = allowed.map((f, i) => `${f} = $${i + 4}`).join(', ') + (hasAvailability ? ', availability_updated_at = NOW()' : '');
-  const values = allowed.map(f => updates[f]);
-  try {
-    const { rows } = await pool.query(
-      `UPDATE project_operators SET ${setClauses} WHERE id = $1 AND project_id = $2 RETURNING *`,
-      [req.params.projectOperatorId, req.params.projectId, ...values]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.delete('/api/projects/:projectId/operators/:projectOperatorId', async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      'DELETE FROM project_operators WHERE id = $1 AND project_id = $2 RETURNING id',
-      [req.params.projectOperatorId, req.params.projectId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+// ─── API ROUTES (modular) ─────────────────────────────────────────────────────
+app.use('/api', operatorsRoutes);
 
 // ─── SHIFTS (scoped by project_id) ─────────────────────────────────────────────
 app.get('/api/shifts', async (req, res) => {
@@ -764,9 +554,25 @@ app.post('/api/demo/seed', async (req, res) => {
   }
 });
 
+// ─── API error handler: ensure /api/* always returns JSON on errors
+app.use(apiErrorHandler);
+
+// ─── API 404: ensure /api/* never gets HTML (e.g. from SPA fallback or wrong host)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API route not found', path: req.path });
+  }
+  next();
+});
+
 // ─── SPA FALLBACK (production only) / DEV ROOT ────────────────────────────────
 if (productionBuildExists) {
-  app.get('*', (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API route not found', path: req.path });
+    }
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
 } else {
   app.get('/', (req, res) =>
     res.json({ ok: true, message: 'API running; use Vite on :5173 for UI' })

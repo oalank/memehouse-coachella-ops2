@@ -13,6 +13,7 @@ function normalizeBase(value) {
     const afterEq = s.slice(s.lastIndexOf("=") + 1).trim();
     if (afterEq.startsWith("http://") || afterEq.startsWith("https://")) return afterEq.replace(/\/$/, "");
   }
+  // Only use as base if it's a full URL (avoids hostnames like "base" causing ENOTFOUND)
   if (s.startsWith("http://") || s.startsWith("https://")) return s.replace(/\/$/, "");
   return "";
 }

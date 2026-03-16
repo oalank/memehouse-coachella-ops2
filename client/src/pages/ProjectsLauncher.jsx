@@ -13,7 +13,7 @@ import { Plus, FolderOpen, Archive, TrendingUp, Clock, ArrowRight, ArrowUpRight,
 import { StatusPill } from "../components/StatusPill";
 import ProductionNotesModal from "../components/ProductionNotesModal";
 import { getProjectById } from "../data/projectStorage";
-import { API_BASE } from "../apiClient";
+import { apiFetch } from "../apiClient";
 import "./ProjectsLauncher.css";
 
 export default function ProjectsLauncher() {
@@ -21,11 +21,9 @@ export default function ProjectsLauncher() {
   const { projects, setProjectId, addProject, refreshProjects, updateProjectStatus, removeProject } = useProject();
 
   const handleLoadDemoData = async () => {
-    const apiBase = API_BASE || "";
     try {
-      const r = await fetch(`${apiBase}/api/demo/seed`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      const data = r.ok ? await r.json().catch(() => ({})) : {};
-      if (!r.ok) console.warn('[Demo] Server seed failed:', data?.error || r.status, data?.detail || '');
+      const data = await apiFetch('/api/demo/seed', { method: 'POST' });
+      if (data?.error) console.warn('[Demo] Server seed failed:', data.error, data?.detail || '');
     } catch (e) {
       console.warn('[Demo] Server seed request failed:', e?.message);
     }

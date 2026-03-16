@@ -2201,7 +2201,7 @@ function EditOperatorModal({ op, zones = [], onSave, onClose, onUpdateDefaultRat
 function AddOperatorModal({ zones = [], onSave, onClose, projectId }) {
   const defaultZone = zones.length ? zones[0] : '';
   const [tab, setTab] = useState(projectId ? 'library' : 'new');
-  const [form, setForm] = useState({ full_name: '', tier: 'T2', zone: defaultZone, hire_stage: 'Outreach', cred_status: 'Not Started', cred_type: 'None', day_rate: '', planned_days: 1, reliability: 3 });
+  const [form, setForm] = useState({ full_name: '', zone: defaultZone, hire_stage: 'Outreach', cred_status: 'Not Started', cred_type: 'None', day_rate: '', planned_days: 1, reliability: 3 });
   const [confirmImmediately, setConfirmImmediately] = useState(false);
   const [err, setErr] = useState(null);
   const [libraryList, setLibraryList] = useState([]);
@@ -2310,12 +2310,7 @@ function AddOperatorModal({ zones = [], onSave, onClose, projectId }) {
               <Stars value={form.reliability} onChange={v=>setForm(f=>({...f,reliability:v}))} />
               <p className="text-[10px] text-muted-foreground mt-1">{STAR_RATING_LABELS[form.reliability] ?? form.reliability} — {form.reliability <= 3 ? "Risk" : "OK"}</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <GlassInput label="Day Rate" type="number" value={form.day_rate} onChange={e=>setForm(f=>({...f,day_rate:e.target.value}))} min={0} placeholder="500" />
-              <GlassSelect label="Tier (optional)" value={form.tier} onChange={e=>setForm(f=>({...f,tier:e.target.value}))}>
-                {Object.keys(TIERS).map(t=><option key={t} value={t}>{t}</option>)}
-              </GlassSelect>
-            </div>
+            <GlassInput label="Day Rate" type="number" value={form.day_rate} onChange={e=>setForm(f=>({...f,day_rate:e.target.value}))} min={0} placeholder="500" />
             <GlassInput label="Planned Days (≥ 0)" type="number" value={form.planned_days} onChange={e=>setForm(f=>({...f,planned_days:e.target.value}))} min={0} step={1} placeholder="1" />
             <GlassSelect label="Zone" value={zones.length ? form.zone : ''} onChange={e=>setForm(f=>({...f,zone:e.target.value}))} disabled={!zones.length}>
               {!zones.length ? <option value="">No zones yet — add in Settings</option> : zones.map(z=><option key={z} value={z}>{z}</option>)}
