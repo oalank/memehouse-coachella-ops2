@@ -1,8 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { API_BASE } from "../apiClient";
 
 const AuthContext = createContext(null);
-
-const API = import.meta.env?.VITE_API_URL ?? "";
 
 /** Demo-only: bypass auth in local dev. Set VITE_DEMO_BYPASS_AUTH=true in .env.local */
 const DEMO_BYPASS_AUTH = import.meta.env.DEV && import.meta.env.VITE_DEMO_BYPASS_AUTH === "true";
@@ -19,7 +18,8 @@ export function AuthProvider({ children }) {
       return;
     }
     try {
-      const res = await fetch(`${API}/api/auth/me`, { credentials: "include" });
+      const url = API_BASE ? `${API_BASE}/api/auth/me` : "/api/auth/me";
+      const res = await fetch(url, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setUser(data.user ?? null);
@@ -46,7 +46,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = useCallback(async (email, password) => {
-    const res = await fetch(`${API}/api/auth/login`, {
+    const url = API_BASE ? `${API_BASE}/api/auth/login` : "/api/auth/login";
+    const res = await fetch(url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -62,7 +63,8 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch(`${API}/api/auth/logout`, { method: "POST", credentials: "include" });
+      const url = API_BASE ? `${API_BASE}/api/auth/logout` : "/api/auth/logout";
+      await fetch(url, { method: "POST", credentials: "include" });
     } finally {
       setUser(null);
     }

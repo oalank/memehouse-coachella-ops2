@@ -7,15 +7,7 @@ import { GlassCard } from "../components/GlassCard";
 import { GlassInput } from "../components/GlassInput";
 import { GlassSelect } from "../components/GlassSelect";
 import { UserPlus, Copy, Check } from "lucide-react";
-
-const API = import.meta.env?.VITE_API_URL ?? "";
-
-function apiFetch(path, opts = {}) {
-  return fetch(`${API}${path}`, { credentials: "include", ...opts }).then((r) => {
-    if (!r.ok) throw new Error(r.statusText);
-    return r.json();
-  });
-}
+import { apiFetch, API_BASE } from "../apiClient";
 
 export default function Invites() {
   const { user } = useAuth();
@@ -49,7 +41,8 @@ export default function Invites() {
     setCreating(true);
     setLastSetupLink("");
     try {
-      const res = await fetch(`${API}/api/invites`, {
+      const url = API_BASE ? `${API_BASE}/api/invites` : "/api/invites";
+      const res = await fetch(url, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

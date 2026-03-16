@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { GlassInput } from "../components/GlassInput";
 import { KeyRound } from "lucide-react";
-
-const API = import.meta.env?.VITE_API_URL ?? "";
+import { API_BASE } from "../apiClient";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -33,7 +32,8 @@ export default function ResetPassword() {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/auth/reset-password`, {
+      const url = API_BASE ? `${API_BASE}/api/auth/reset-password` : "/api/auth/reset-password";
+      const res = await fetch(url, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

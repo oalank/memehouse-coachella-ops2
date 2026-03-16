@@ -3,8 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../state/authStore";
 import { GlassInput } from "../components/GlassInput";
 import { LogIn } from "lucide-react";
-
-const API = import.meta.env?.VITE_API_URL ?? "";
+import { API_BASE } from "../apiClient";
 
 export default function Setup() {
   const { user, setUserFromSession } = useAuth();
@@ -30,7 +29,8 @@ export default function Setup() {
       return;
     }
     let cancelled = false;
-    fetch(`${API}/api/auth/setup?token=${encodeURIComponent(token)}`, { credentials: "include" })
+    const url = API_BASE ? `${API_BASE}/api/auth/setup?token=${encodeURIComponent(token)}` : `/api/auth/setup?token=${encodeURIComponent(token)}`;
+    fetch(url, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         if (!cancelled) {
@@ -56,7 +56,8 @@ export default function Setup() {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/auth/setup`, {
+      const url = API_BASE ? `${API_BASE}/api/auth/setup` : "/api/auth/setup";
+      const res = await fetch(url, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

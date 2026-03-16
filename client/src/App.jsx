@@ -49,59 +49,7 @@ class ErrorBoundary extends Component {
 }
 
 // ─── API LAYER ────────────────────────────────────────────────────────────────
-// Production (Railway): set VITE_API_URL to backend root (e.g. https://your-backend.railway.app).
-// Development: leave unset so relative /api paths are proxied by Vite to the backend.
-const API_BASE = (import.meta.env?.VITE_API_URL ?? "").replace(/\/$/, "");
-
-function parseJsonResponse(txt, path) {
-  const trimmed = (txt || "").trim();
-  if (!trimmed) return {};
-  if (trimmed.startsWith("<")) {
-    const msg =
-      API_BASE
-        ? "API returned HTML instead of JSON."
-        : "API returned HTML. Set VITE_API_URL to your backend URL (e.g. https://your-backend.railway.app) and rebuild.";
-    console.error(`[API] ${path}:`, msg);
-    throw new Error(msg);
-  }
-  try {
-    return JSON.parse(txt);
-  } catch (e) {
-    console.error(`[API] ${path} invalid JSON:`, e?.message);
-    throw new Error(`API ${path}: invalid response`);
-  }
-}
-
-async function apiFetch(path, opts = {}) {
-  try {
-    const url = API_BASE ? `${API_BASE}${path}` : path;
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      ...opts,
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
-    const txt = await res.text();
-    if (!res.ok) {
-      let msg = `API ${path} failed: ${res.status}`;
-      try {
-        const j = JSON.parse(txt);
-        if (j?.error) msg = j.error;
-      } catch {
-        if (txt) msg += " " + txt.slice(0, 100);
-      }
-      console.error(`[API] ${path} failed:`, msg);
-      const e = new Error(msg);
-      e.status = res.status;
-      e.body = txt;
-      throw e;
-    }
-    return parseJsonResponse(txt, path);
-  } catch (err) {
-    if (err?.status) throw err;
-    console.error(`[API] ${path} fetch error:`, err?.message || err);
-    throw err;
-  }
-}
+import { apiFetch, API_BASE } from "./apiClient";
 
 const api = {
   getOperators:  (projectId, opts = {}) => {
@@ -3078,11 +3026,7 @@ function ProjectDashboard() {
       const q = new URLSearchParams();
       if (projectId != null && projectId !== '') q.set('project_id', projectId);
       if (includeArchived) q.set('includeArchived', 'true');
-      const url = API_BASE ? `${API_BASE}/api/operators${q.toString() ? '?' + q.toString() : ''}` : `/api/operators${q.toString() ? '?' + q.toString() : ''}`;
-      const res = await fetch(url, { signal: ctrl.signal, headers: { 'Content-Type': 'application/json' } });
-      const txt = await res.text();
-      if (!res.ok) throw new Error(String(res.status));
-      const data = parseJsonResponse(txt, '/api/operators');
+      const data = await apiFetch('/api/operators' + (q.toString() ? '?' + q.toString() : ''), { signal: ctrl.signal });
       clearTimeout(t);
       const arr = Array.isArray(data) ? data : (data?.operators || []);
       if (!Array.isArray(arr)) {

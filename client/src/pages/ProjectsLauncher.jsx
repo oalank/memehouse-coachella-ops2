@@ -13,6 +13,7 @@ import { Plus, FolderOpen, Archive, TrendingUp, Clock, ArrowRight, ArrowUpRight,
 import { StatusPill } from "../components/StatusPill";
 import ProductionNotesModal from "../components/ProductionNotesModal";
 import { getProjectById } from "../data/projectStorage";
+import { API_BASE } from "../apiClient";
 import "./ProjectsLauncher.css";
 
 export default function ProjectsLauncher() {
@@ -20,7 +21,7 @@ export default function ProjectsLauncher() {
   const { projects, setProjectId, addProject, refreshProjects, updateProjectStatus, removeProject } = useProject();
 
   const handleLoadDemoData = async () => {
-    const apiBase = import.meta.env?.VITE_API_URL ?? '';
+    const apiBase = API_BASE || "";
     try {
       const r = await fetch(`${apiBase}/api/demo/seed`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = r.ok ? await r.json().catch(() => ({})) : {};

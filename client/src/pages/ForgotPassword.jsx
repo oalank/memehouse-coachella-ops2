@@ -2,8 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { GlassInput } from "../components/GlassInput";
 import { Mail } from "lucide-react";
-
-const API = import.meta.env?.VITE_API_URL ?? "";
+import { API_BASE } from "../apiClient";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -16,7 +15,8 @@ export default function ForgotPassword() {
     setError("");
     setSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/auth/forgot-password`, {
+      const url = API_BASE ? `${API_BASE}/api/auth/forgot-password` : "/api/auth/forgot-password";
+      const res = await fetch(url, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
