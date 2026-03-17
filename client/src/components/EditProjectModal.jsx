@@ -27,6 +27,12 @@ export default function EditProjectModal({ project, onSave, onClose }) {
   const [err, setErr] = useState(null);
 
   useEffect(() => {
+    // Log whenever we (re)initialize the form from project props
+    console.log("[EditProjectModal] init from project", {
+      id: project?.id,
+      name: project?.name,
+      budgetCap,
+    });
     if (project) {
       setForm({
         name: project.name || "",
@@ -43,13 +49,27 @@ export default function EditProjectModal({ project, onSave, onClose }) {
         gearCheckoutLink: project.gearCheckoutLink ?? "",
       });
     }
-  }, [project, budgetCap, breakPolicy, zones]);
+  // Only re-init when the project identity changes (e.g. switching projects),
+  // not on every render of derived objects like zones/breakPolicy.
+  }, [project?.id]);
 
-  const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  // Log field values on every render for debugging
+  console.log("[EditProjectModal] render values", {
+    name: form.name,
+    laborCap: form.laborCap,
+  });
 
-  const handleSubmit = (e) => {
+  const update = (key, value) => {
+    if (key === "laborCap") {
+      console.log("[EditProjectModal] Budget Cap change", { raw: value });
+    }
+    setForm((f) => ({ ...f, [key]: value }));
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErr(null);
+    console.log("[EditProjectModal] handleSubmit called with form:", form);
     const name = (form.name || "").trim();
     if (!name) {
       setErr("Project name is required.");
@@ -77,7 +97,7 @@ export default function EditProjectModal({ project, onSave, onClose }) {
         if (Number.isFinite(m) && m >= 0) breakPolicyUpdate.mealBreakDurationMinutes = m;
       }
 
-      onSave({
+      const payload = {
         name,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
@@ -91,8 +111,9 @@ export default function EditProjectModal({ project, onSave, onClose }) {
         breakPolicy: Object.keys(breakPolicyUpdate).length ? { ...breakPolicy, ...breakPolicyUpdate } : undefined,
         streamReportLink: (form.streamReportLink || "").trim() || undefined,
         gearCheckoutLink: (form.gearCheckoutLink || "").trim() || undefined,
-      });
-      onClose();
+      };
+      console.log("[EditProjectModal] onSave payload", payload);
+      await Promise.resolve(onSave(payload));
     } catch (e) {
       setErr(e?.message || "Failed to save");
     } finally {
@@ -117,7 +138,19 @@ export default function EditProjectModal({ project, onSave, onClose }) {
           <GlassInput
             type="text"
             value={form.name}
-            onChange={(e) => update("name", e.target.value)}
+            onFocus={(e) => {
+              console.log("[EditProjectModal] Project name onFocus", { value: e.target.value });
+            }}
+            onKeyDown={(e) => {
+              console.log("[EditProjectModal] Project name onKeyDown", { key: e.key, value: e.target.value });
+            }}
+            onInput={(e) => {
+              console.log("[EditProjectModal] Project name onInput", { value: e.target.value });
+            }}
+            onChange={(e) => {
+              console.log("[EditProjectModal] Project name onChange", { value: e.target.value });
+              update("name", e.target.value);
+            }}
             placeholder="e.g. Coachella 2026"
             required
           />
@@ -125,10 +158,27 @@ export default function EditProjectModal({ project, onSave, onClose }) {
         <div>
           <label className={fieldLabelClass}>Budget cap ($)</label>
           <GlassInput
-            type="number"
-            min={0}
+            type="text"
             value={form.laborCap}
-            onChange={(e) => update("laborCap", e.target.value)}
+            onMouseDown={(e) => {
+              console.log("[EditProjectModal] Budget Cap onMouseDown", { button: e.button, value: e.target.value });
+            }}
+            onClick={(e) => {
+              console.log("[EditProjectModal] Budget Cap onClick", { value: e.target.value });
+            }}
+            onFocus={(e) => {
+              console.log("[EditProjectModal] Budget Cap onFocus", { value: e.target.value });
+            }}
+            onKeyDown={(e) => {
+              console.log("[EditProjectModal] Budget Cap onKeyDown", { key: e.key, value: e.target.value });
+            }}
+            onInput={(e) => {
+              console.log("[EditProjectModal] Budget Cap onInput", { value: e.target.value });
+            }}
+            onChange={(e) => {
+              console.log("[EditProjectModal] Budget Cap onChange", { value: e.target.value });
+              update("laborCap", e.target.value);
+            }}
             placeholder="Labor budget cap"
           />
         </div>
