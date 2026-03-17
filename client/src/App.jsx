@@ -398,28 +398,8 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
         <HudCard header="// EXECUTIVE OVERVIEW">
           <p className="text-xs text-muted-foreground leading-relaxed">Budget updates based on committed ops + logged shifts</p>
         </HudCard>
-        {/* Primary financial row — ONLY these 3 cards; order: 1. Budget Cap, 2. Committed, 3. Remaining */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-section="executive-financial-top">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Budget Cap" value={fmt$(budgetCap)} helper="Total labor budget" accentColor="#6366f1" bars={4} />
-          <StatCard label="Committed" value={fmt$(committed)} helper="Confirmed ops (rate × days)" accentColor="#f59e0b" bars={4} />
-          <StatCard
-            label="Remaining"
-            value={fmtCurrencySigned(remainingFinancial)}
-            helper="Budget Cap − Committed"
-            accentColor={remainingFinancialColor}
-            statusLabel={remainingFinancialLabel}
-            bars={3}
-          />
-        </div>
-        {/* Downstream metrics — below the primary financial row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Actual Expenses" value={fmt$(actualExpensesTotal)} helper="Non-labor production expenses" accentColor="#0ea5e9" bars={2} />
-          <StatCard label="Daily Burn" value={dailyBurnLabel} helper={dailyBurnHelper} accentColor={healthBurn?.color ?? "#0ea5e9"} statusLabel={healthBurn?.label} bars={3} />
-          <StatCard label="Runway" value={runwayLabel} helper="Remaining ÷ burn rate" accentColor={healthRunway?.color ?? "#06b6d4"} statusLabel={healthRunway?.label} bars={3} />
-          <StatCard label="Remaining Balance" value={fmt$(remaining)} helper="Budget − (labor + expenses)" accentColor={healthRemaining?.color ?? "#22c55e"} statusLabel={healthRemaining?.label} bars={3} />
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Actual Labor" value={fmt$(actual)} helper="From logged shifts" accentColor={healthActual?.color ?? "#22c55e"} statusLabel={healthActual?.label} bars={3} />
           <StatCard
             label="Committed Labor"
             value={fmt$(committed)}
@@ -428,6 +408,13 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
             statusLabel={healthCommitted?.label}
             bars={5}
           />
+          <StatCard label="Remaining Balance" value={fmt$(remaining)} helper="Budget − (labor + expenses)" accentColor={healthRemaining?.color ?? "#22c55e"} statusLabel={healthRemaining?.label} bars={3} />
+          <StatCard label="Actual Expenses" value={fmt$(actualExpensesTotal)} helper="Non-labor production expenses" accentColor="#0ea5e9" bars={2} />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Runway" value={runwayLabel} helper="Remaining ÷ burn rate" accentColor={healthRunway?.color ?? "#06b6d4"} statusLabel={healthRunway?.label} bars={3} />
+          <StatCard label="Actual Labor" value={fmt$(actual)} helper="From logged shifts" accentColor={healthActual?.color ?? "#22c55e"} statusLabel={healthActual?.label} bars={3} />
+          <StatCard label="Daily Burn" value={dailyBurnLabel} helper={dailyBurnHelper} accentColor={healthBurn?.color ?? "#0ea5e9"} statusLabel={healthBurn?.label} bars={3} />
           <StatCard label="OT Spend" value={fmt$(otSpend)} helper="Overtime" accentColor={healthOt?.color ?? "#a855f7"} statusLabel={healthOt?.label} bars={2} />
         </div>
         <HudCard header="// PIPELINE SUMMARY" noPadding>
