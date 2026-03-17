@@ -26,6 +26,9 @@ import { GlassModal } from "./components/GlassModal";
 import { GlassInput } from "./components/GlassInput";
 import { GlassSelect } from "./components/GlassSelect";
 import EditProjectModal from "./components/EditProjectModal";
+import ProtectedRoute from "./components/ProtectedRoute";
+import LoginPage from "./pages/LoginPage";
+import PortalPage from "./pages/PortalPage";
 
 // ─── ERROR BOUNDARY ────────────────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -65,6 +68,8 @@ const api = {
   updateProjectOperator: (projectId, projectOperatorId, d) => apiFetch(`/api/projects/${encodeURIComponent(projectId)}/operators/${projectOperatorId}`, { method: 'PATCH', body: d }),
   deleteOperator:(id)    => apiFetch(`/api/operators/${id}`, { method: 'DELETE' }),
   removeOperatorFromProject: (projectId, projectOperatorId) => apiFetch(`/api/projects/${encodeURIComponent(projectId)}/operators/${projectOperatorId}`, { method: 'DELETE' }),
+  getProject:   (projectId) => apiFetch(`/api/projects/${encodeURIComponent(projectId)}`),
+  updateProjectConfig: (projectId, patch) => apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: patch }),
   getLibraryOperators:   () => apiFetch('/api/operators'),
   getShifts:     (params) => apiFetch('/api/shifts' + (params && Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : '')),
   addShift:      (data)  => apiFetch('/api/shifts', { method: 'POST', body: data }),
@@ -278,6 +283,9 @@ function getExecutiveHealth(metric, ctx) {
       if (runwayDays < Infinity && runwayDays <= 7) return { state: "critical", color: EXEC_HEALTH_COLORS.critical, label: EXEC_HEALTH_LABELS.critical };
       return null;
     case "runway":
+      // When burnRate is 0 but remainingBalance > 0, remainingDays is null and runwayDays is Infinity.
+      // Treat that as neutral (no health label/color), not \"healthy\".
+      if (!Number.isFinite(runwayDays)) return null;
       if (runwayDays > 14) return { state: "healthy", color: EXEC_HEALTH_COLORS.healthy, label: EXEC_HEALTH_LABELS.healthy };
       if (runwayDays > 7) return { state: "warning", color: EXEC_HEALTH_COLORS.warning, label: EXEC_HEALTH_LABELS.warning };
       if (runwayDays < Infinity && runwayDays <= 7) return { state: "critical", color: EXEC_HEALTH_COLORS.critical, label: EXEC_HEALTH_LABELS.critical };
@@ -340,14 +348,14 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
   const credDeniedCount = c.cred_denied ?? stats?.credDenied ?? 0;
   const highRiskCount = c.high_risk ?? stats?.highRisk ?? 0;
 
-  // Project window: [eventStart, min(today, eventEnd)] for burn and runway only
+  // Project window: [eventStart, min(today, eventEnd)] for burn and runway labels only
   const eventStart = eventStartISO ?? event?.start_date ?? event?.eventStart ?? null;
   const eventEnd = eventEndISO ?? event?.end_date ?? event?.eventEnd ?? null;
   const todayStr = new Date().toISOString().slice(0, 10);
   const windowEndStr = !eventEnd || eventEnd > todayStr ? todayStr : eventEnd.slice(0, 10);
   const startStr = eventStart ? eventStart.slice(0, 10) : null;
 
-  // Expenses within project window (for Daily Burn only)
+  // Expenses within project window (kept for potential future use; current burn uses actuals for consistency)
   const expensesWithinProjectWindow = useMemo(() => {
     if (!startStr) return 0;
     return (Array.isArray(expenses) ? expenses : []).reduce((sum, e) => {
@@ -362,17 +370,38 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
     ? Math.floor((new Date(windowEndStr) - new Date(startStr)) / 86400000) + 1
     : 0;
 
-  // Daily Burn = (laborWithinProjectWindow + expensesWithinProjectWindow) / elapsedProductionDays; Runway = remaining / dailyBurn (formulas unchanged)
-  const spendInWindow = laborWithinProjectWindow + expensesWithinProjectWindow;
-  const burnRate = elapsedProductionDays > 0 && spendInWindow > 0 ? spendInWindow / elapsedProductionDays : 0;
-  const remainingDays = burnRate > 0 ? remaining / burnRate : null;
+  // Daily Burn = (actualLabor + actualExpenses + otSpend) / elapsedProductionDays
+  // Runway = remainingBalance / dailyBurn
+  const totalSpendForBurn = actualLabor + actualExpensesTotal + otSpend;
+  const burnRate = elapsedProductionDays > 0 && totalSpendForBurn > 0
+    ? totalSpendForBurn / elapsedProductionDays
+    : 0;
+  // When remaining <= 0, treat runway as 0 days (critical), not healthy.
+  const remainingDays = burnRate > 0
+    ? Math.max(0, remaining / burnRate)
+    : (remaining <= 0 ? 0 : null);
 
-  // Display states for Daily Burn and Runway (no formula changes)
+  // Display states for Daily Burn and Runway
   const isPreProduction = !startStr || todayStr < startStr;
-  const hasNoSpendYet = elapsedProductionDays > 0 && spendInWindow <= 0;
-  const dailyBurnLabel = isPreProduction ? "Pre-production" : hasNoSpendYet ? "No spend yet" : (burnRate <= 0 ? "—" : `${fmt$(burnRate)} / day`);
-  const dailyBurnHelper = isPreProduction ? (startStr ? `Starts ${formatDateShort(startStr)}` : "Before project start") : "Spend in project window ÷ elapsed production days";
-  const runwayLabel = isPreProduction ? "Pre-production" : hasNoSpendYet ? "—" : (burnRate <= 0 ? "—" : (remainingDays != null ? `${Math.round(remainingDays)} days remaining` : "—"));
+  const hasNoSpendYet = elapsedProductionDays > 0 && totalSpendForBurn <= 0;
+
+  const dailyBurnLabel = isPreProduction
+    ? "Pre-production"
+    : hasNoSpendYet
+      ? "No spend yet"
+      : (burnRate <= 0 ? "—" : `${fmt$(burnRate)} / day`);
+
+  const dailyBurnHelper = isPreProduction
+    ? (startStr ? `Starts ${formatDateShort(startStr)}` : "Before project start")
+    : "Total (labor + OT + expenses) ÷ elapsed production days";
+
+  const runwayLabel = isPreProduction
+    ? "Pre-production"
+    : remaining <= 0
+      ? "Over budget"
+      : hasNoSpendYet || burnRate <= 0
+        ? "—"
+        : (remainingDays != null ? `${Math.round(remainingDays)} days remaining` : "—");
 
   const healthCtx = { budgetCap, actual, committed, remaining, otSpend, remainingDays };
   const healthActual = getExecutiveHealth("actual", healthCtx);
@@ -408,8 +437,8 @@ function ExecutiveView({ stats, event, statsError, onRetry, isMobile, ops, commi
             statusLabel={healthCommitted?.label}
             bars={5}
           />
-          <StatCard label="Remaining Balance" value={fmt$(remaining)} helper="Budget − (labor + expenses)" accentColor={healthRemaining?.color ?? "#22c55e"} statusLabel={healthRemaining?.label} bars={3} />
           <StatCard label="Actual Expenses" value={fmt$(actualExpensesTotal)} helper="Non-labor production expenses" accentColor="#0ea5e9" bars={2} />
+          <StatCard label="Remaining Balance" value={fmt$(remaining)} helper="Budget − (labor + expenses)" accentColor={healthRemaining?.color ?? "#22c55e"} statusLabel={healthRemaining?.label} bars={3} />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Runway" value={runwayLabel} helper="Remaining ÷ burn rate" accentColor={healthRunway?.color ?? "#06b6d4"} statusLabel={healthRunway?.label} bars={3} />
@@ -3314,26 +3343,75 @@ function ProjectDashboard() {
       {showEditProjectModal && project && (
         <EditProjectModal
           project={project}
-          onSave={(patch) => {
-            if (isCustomProject(projectId)) {
-              updateProject(projectId, patch);
-            } else {
-              addProject({
+          onSave={async (patch) => {
+            try {
+              // Persist to backend first (authoritative source for live dashboard)
+              console.log("[EditProjectModal] calling api.updateProjectConfig", { projectId, patch });
+              const backendProject = await api.updateProjectConfig(projectId, {
                 id: projectId,
-                name: patch.name ?? project.name,
-                startDate: (patch.startDate ?? project.eventStartISO) || "",
-                endDate: (patch.endDate ?? project.eventEndISO) || "",
-                budget: patch.budget ?? project.budget,
-                credentialsRequired: patch.credentialsRequired ?? project.credentialsRequired,
-                zones: patch.zones ?? project.zones,
-                location: patch.location ?? project.location,
-                clientName: patch.clientName ?? project.clientName,
-                breakPolicy: patch.breakPolicy ?? project.breakPolicy,
-                streamReportLink: patch.streamReportLink ?? project.streamReportLink,
-                gearCheckoutLink: patch.gearCheckoutLink ?? project.gearCheckoutLink,
+                ...patch,
               });
+              console.log("[EditProjectModal] backendProject response", backendProject);
+
+              // Keep local project storage in sync for launcher/archival views (fallback/legacy)
+              if (isCustomProject(projectId)) {
+                updateProject(projectId, {
+                  ...patch,
+                  budget: backendProject?.budget ?? patch.budget,
+                  eventStartISO: backendProject?.eventStartISO ?? patch.eventStartISO,
+                  eventEndISO: backendProject?.eventEndISO ?? patch.eventEndISO,
+                  location: backendProject?.location ?? patch.location,
+                  clientName: backendProject?.clientName ?? patch.clientName,
+                  credentialsRequired: backendProject?.credentialsRequired ?? patch.credentialsRequired,
+                  zones: backendProject?.zones ?? patch.zones,
+                  breakPolicy: backendProject?.breakPolicy ?? patch.breakPolicy,
+                  streamReportLink: backendProject?.streamReportLink ?? patch.streamReportLink,
+                  gearCheckoutLink: backendProject?.gearCheckoutLink ?? patch.gearCheckoutLink,
+                });
+              } else {
+                addProject({
+                  id: projectId,
+                  name: backendProject?.name ?? patch.name ?? project.name,
+                  startDate: (backendProject?.startDate ?? backendProject?.eventStartISO ?? patch.startDate ?? project.eventStartISO) || "",
+                  endDate: (backendProject?.endDate ?? backendProject?.eventEndISO ?? patch.endDate ?? project.eventEndISO) || "",
+                  budget: backendProject?.budget ?? patch.budget ?? project.budget,
+                  credentialsRequired: backendProject?.credentialsRequired ?? patch.credentialsRequired ?? project.credentialsRequired,
+                  zones: backendProject?.zones ?? patch.zones ?? project.zones,
+                  location: backendProject?.location ?? patch.location ?? project.location,
+                  clientName: backendProject?.clientName ?? patch.clientName ?? project.clientName,
+                  breakPolicy: backendProject?.breakPolicy ?? patch.breakPolicy ?? project.breakPolicy,
+                  streamReportLink: backendProject?.streamReportLink ?? patch.streamReportLink ?? project.streamReportLink,
+                  gearCheckoutLink: backendProject?.gearCheckoutLink ?? patch.gearCheckoutLink ?? project.gearCheckoutLink,
+                });
+              }
+
+              // Refresh Executive stats so Budget Cap + metrics update immediately
+              invalidateStats();
+            } catch (e) {
+              console.error('[EditProjectModal] Failed to save via API, falling back to localStorage:', e?.message || e);
+              // Fallback: preserve previous local-only behavior for demo/offline
+              if (isCustomProject(projectId)) {
+                updateProject(projectId, patch);
+              } else {
+                addProject({
+                  id: projectId,
+                  name: patch.name ?? project.name,
+                  startDate: (patch.startDate ?? project.eventStartISO) || "",
+                  endDate: (patch.endDate ?? project.eventEndISO) || "",
+                  budget: patch.budget ?? project.budget,
+                  credentialsRequired: patch.credentialsRequired ?? project.credentialsRequired,
+                  zones: patch.zones ?? project.zones,
+                  location: patch.location ?? project.location,
+                  clientName: patch.clientName ?? project.clientName,
+                  breakPolicy: patch.breakPolicy ?? project.breakPolicy,
+                  streamReportLink: patch.streamReportLink ?? project.streamReportLink,
+                  gearCheckoutLink: patch.gearCheckoutLink ?? project.gearCheckoutLink,
+                });
+              }
+              invalidateStats();
+            } finally {
+              setShowEditProjectModal(false);
             }
-            setShowEditProjectModal(false);
           }}
           onClose={() => setShowEditProjectModal(false)}
         />
@@ -3352,13 +3430,19 @@ function HomeRedirect() {
 
 export default function App() {
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<HomeRedirect />} />
-        <Route path="/projects" element={<ProjectsLauncher />} />
-        <Route path="/p/:projectId/:view?" element={<ProjectDashboard />} />
-      </Routes>
-    </Layout>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/portal" element={<ProtectedRoute><PortalPage /></ProtectedRoute>} />
+      <Route path="/*" element={
+        <Layout>
+          <Routes>
+            <Route path="/" element={<HomeRedirect />} />
+            <Route path="/projects" element={<ProjectsLauncher />} />
+            <Route path="/p/:projectId/:view?" element={<ProjectDashboard />} />
+          </Routes>
+        </Layout>
+      } />
+    </Routes>
   );
 }
 
