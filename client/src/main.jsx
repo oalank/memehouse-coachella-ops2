@@ -6,6 +6,7 @@ import './styles/hud.css';
 import './styles/app-background.css';
 import './styles/lovable-theme.css';
 import { ProjectProvider } from './state/projectStore';
+import { AuthProvider } from './context/AuthContext';
 import App from './App';
 
 class TopErrorBoundary extends React.Component {
@@ -30,9 +31,11 @@ const root = document.getElementById('root');
 ReactDOM.createRoot(root).render(
   <TopErrorBoundary>
     <BrowserRouter>
-      <ProjectProvider>
-        <App />
-      </ProjectProvider>
+      <AuthProvider>
+        <ProjectProvider>
+          <App />
+        </ProjectProvider>
+      </AuthProvider>
     </BrowserRouter>
   </TopErrorBoundary>
 );
