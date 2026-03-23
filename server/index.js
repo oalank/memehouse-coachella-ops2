@@ -14,9 +14,16 @@ const { apiErrorHandler } = require('./src/middleware/apiErrorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const runtimeState = {
+  dbOk: false,
+  dbLastError: null,
+  dbLastCheckAt: null,
+  routesMounted: false,
+};
 
 console.log("[server] booting entry file:", __filename);
 console.log("[server] NODE_ENV:", process.env.NODE_ENV || "undefined");
+console.log("[startup] process booted, initializing middleware/routes");
 
 // ─── STATIC: production only, client/dist only; NEVER client/build in dev ───────
 const clientDist = path.join(__dirname, '../client/dist');
@@ -210,14 +217,26 @@ async function migrateDB() {
 }
 
 async function initDB() {
+  console.log('[startup] initDB begin');
   if (!hasDb) {
+    runtimeState.dbOk = false;
+    runtimeState.dbLastError = 'DATABASE_URL not set';
+    runtimeState.dbLastCheckAt = new Date().toISOString();
     console.warn('   Skipping DB init: DATABASE_URL not set');
     return;
   }
   try {
     await pool.query('SELECT 1');
+    runtimeState.dbOk = true;
+    runtimeState.dbLastError = null;
+    runtimeState.dbLastCheckAt = new Date().toISOString();
+    console.log('[startup] initDB connection check: OK');
     console.log('   DB connection: OK');
   } catch (err) {
+    runtimeState.dbOk = false;
+    runtimeState.dbLastError = err.message;
+    runtimeState.dbLastCheckAt = new Date().toISOString();
+    console.error('[startup] initDB connection check: FAILED', err.message);
     console.error('   DB connection FAILED:', err.message);
     console.error('   Stack:', err.stack);
     return;
@@ -230,8 +249,16 @@ async function initDB() {
   try {
     await pool.query(schemaToRun);
     await migrateDB();
+    runtimeState.dbOk = true;
+    runtimeState.dbLastError = null;
+    runtimeState.dbLastCheckAt = new Date().toISOString();
+    console.log('[startup] initDB migrations: OK');
     console.log('✅ Database initialized (operators, shifts, events)');
   } catch (err) {
+    runtimeState.dbOk = false;
+    runtimeState.dbLastError = err.message;
+    runtimeState.dbLastCheckAt = new Date().toISOString();
+    console.error('[startup] initDB migrations: FAILED', err.message);
     console.error('DB init error:', err.message);
     console.error('Stack:', err.stack);
   }
@@ -272,6 +299,8 @@ app.use('/api', authRoutes);
 console.log("[server] auth route paths:", listRouterPaths("/api", authRoutes));
 app.use('/api', projectsRoutes);
 app.use('/api', operatorsRoutes);
+runtimeState.routesMounted = true;
+console.log('[startup] route mount completion: auth/projects/operators mounted under /api');
 
 // ─── SHIFTS (scoped by project_id) ─────────────────────────────────────────────
 app.get('/api/shifts', async (req, res) => {
@@ -655,10 +684,21 @@ app.get('/api/metrics', async (req, res) => {
 });
 
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
-app.get('/api/health', async (req, res) => {
-  let dbOk = false;
-  try { await pool.query('SELECT 1'); dbOk = true; } catch (e) { /* db not ready */ }
-  res.status(200).json({ ok: true, db: dbOk, service: 'memehouse-ops', ts: new Date().toISOString() });
+app.get('/api/health', (req, res) => {
+  console.log('[health] /api/health hit', {
+    dbOk: runtimeState.dbOk,
+    dbLastCheckAt: runtimeState.dbLastCheckAt,
+    routesMounted: runtimeState.routesMounted,
+  });
+  res.status(200).json({
+    ok: true,
+    db: runtimeState.dbOk,
+    dbLastError: runtimeState.dbLastError,
+    dbLastCheckAt: runtimeState.dbLastCheckAt,
+    routesMounted: runtimeState.routesMounted,
+    service: 'memehouse-ops',
+    ts: new Date().toISOString(),
+  });
 });
 
 // ─── DEMO SEED (run server-side seed so DB and app use same DATABASE_URL) ─────
