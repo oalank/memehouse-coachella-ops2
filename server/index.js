@@ -1,10 +1,13 @@
 const express = require('express');
+const session = require('express-session');
 const fs = require('fs');
 const cors = require('cors');
 const path = require('path');
 
 const { pool, hasDb } = require('./src/config');
 const operatorsRoutes = require('./src/routes/operators.routes');
+const authRoutes = require('./src/routes/auth.routes');
+const projectsRoutes = require('./src/routes/projects.routes');
 const { apiErrorHandler } = require('./src/middleware/apiErrorHandler');
 
 const app = express();
@@ -26,6 +29,22 @@ if (productionBuildExists) {
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
+const sessionSecret = process.env.SESSION_SECRET || 'dev-secret-change-in-production';
+app.use(
+  session({
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    name: 'memehouse.sid',
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
+
 // ─── INIT DB ──────────────────────────────────────────────────────────────────
 /**
  * Migrate existing DBs: add new columns if missing.
@@ -33,6 +52,42 @@ app.use(express.json());
  */
 async function migrateDB() {
   const coreMigrations = [
+    // Projects config (portal-side; separate from events). Stores budget, dates, metadata.
+    `CREATE TABLE IF NOT EXISTS projects (
+      id VARCHAR(128) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      budget_labor_cap INTEGER NOT NULL DEFAULT 0,
+      start_date DATE,
+      end_date DATE,
+      event_start_iso DATE,
+      event_end_iso DATE,
+      location VARCHAR(255),
+      client_name VARCHAR(255),
+      credentials_required BOOLEAN NOT NULL DEFAULT true,
+      break_policy JSONB,
+      zones TEXT[],
+      stream_report_link TEXT,
+      gear_checkout_link TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_projects_name ON projects (name)`,
+    // Auth: users table (created after operators so operator_id FK works)
+    `CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'camera_operator',
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      reset_token VARCHAR(255),
+      reset_expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_role ON users (role)`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS operator_id INTEGER REFERENCES operators(id) ON DELETE SET NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_users_operator_id ON users (operator_id)`,
     `ALTER TABLE operators ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true`,
     `ALTER TABLE operators ADD COLUMN IF NOT EXISTS planned_days INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE operators ADD COLUMN IF NOT EXISTS project_id VARCHAR(128)`,
@@ -84,6 +139,42 @@ async function migrateDB() {
   ];
   for (const q of coreMigrations) {
     try { await pool.query(q); } catch (_) { /* column may already exist */ }
+  }
+  // Optional: seed one admin user if none exist (set SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD in .env)
+  const seedEmail = process.env.SEED_ADMIN_EMAIL;
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (seedEmail && seedPassword && hasDb) {
+    try {
+      const { rows: existing } = await pool.query('SELECT id FROM users LIMIT 1');
+      if (existing.length === 0) {
+        const bcrypt = require('bcrypt');
+        const hash = bcrypt.hashSync(seedPassword, 12);
+        await pool.query(
+          'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)',
+          [String(seedEmail).trim().toLowerCase(), hash, 'admin']
+        );
+        console.log('   Seeded admin user:', seedEmail);
+      }
+    } catch (e) {
+      console.warn('   Seed admin skipped:', e.message);
+    }
+  }
+  // Temporary seed user so login works immediately (safe: no duplicate email)
+  if (hasDb) {
+    try {
+      const bcrypt = require('bcrypt');
+      const seedEmail = 'work@alankaruku.com';
+      const seedHash = bcrypt.hashSync('test1234', 12);
+      const { rowCount } = await pool.query(
+        `INSERT INTO users (email, password_hash, role, is_active)
+         VALUES ($1, $2, 'admin', true)
+         ON CONFLICT (email) DO NOTHING`,
+        [seedEmail, seedHash]
+      );
+      if (rowCount > 0) console.log('   Seed user ready:', seedEmail);
+    } catch (e) {
+      console.warn('   Seed user skipped:', e.message);
+    }
   }
   // One-time: move operators with project_id into project_operators, then clear project_id
   try {
@@ -143,6 +234,9 @@ function dbDown(res, route, fallback) {
 }
 
 // ─── API ROUTES (modular) ─────────────────────────────────────────────────────
+console.log("[server] mounting auth routes at /api (expects /api/auth/*)");
+app.use('/api', authRoutes);
+app.use('/api', projectsRoutes);
 app.use('/api', operatorsRoutes);
 
 // ─── SHIFTS (scoped by project_id) ─────────────────────────────────────────────
