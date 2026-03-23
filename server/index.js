@@ -1,3 +1,5 @@
+console.log("[BOOT CHECK] SERVER INDEX LIVE v1");
+
 const express = require('express');
 const session = require('express-session');
 const fs = require('fs');
@@ -12,6 +14,9 @@ const { apiErrorHandler } = require('./src/middleware/apiErrorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+console.log("[server] booting entry file:", __filename);
+console.log("[server] NODE_ENV:", process.env.NODE_ENV || "undefined");
 
 // ─── STATIC: production only, client/dist only; NEVER client/build in dev ───────
 const clientDist = path.join(__dirname, '../client/dist');
@@ -28,6 +33,19 @@ if (productionBuildExists) {
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+
+// Log auth route hits even if handlers are missing (helps diagnose 404s in prod).
+app.use('/api/auth', (req, res, next) => {
+  try {
+    if (req.method === 'POST' && req.path === '/login') {
+      console.log("[auth] hit POST /api/auth/login");
+    }
+    if (req.method === 'GET' && req.path === '/me') {
+      console.log("[auth] hit GET /api/auth/me");
+    }
+  } catch (_) {}
+  next();
+});
 
 const sessionSecret = process.env.SESSION_SECRET || 'dev-secret-change-in-production';
 app.use(
@@ -233,9 +251,25 @@ function dbDown(res, route, fallback) {
   res.status(200).json(fallback);
 }
 
+function listRouterPaths(prefix, router) {
+  const routes = [];
+  try {
+    const stack = router?.stack || [];
+    for (const layer of stack) {
+      if (!layer.route || !layer.route.path) continue;
+      const methods = layer.route.methods || {};
+      for (const [method, enabled] of Object.entries(methods)) {
+        if (enabled) routes.push(`${method.toUpperCase()} ${prefix}${layer.route.path}`);
+      }
+    }
+  } catch (_) {}
+  return routes.sort();
+}
+
 // ─── API ROUTES (modular) ─────────────────────────────────────────────────────
 console.log("[server] mounting auth routes at /api (expects /api/auth/*)");
 app.use('/api', authRoutes);
+console.log("[server] auth route paths:", listRouterPaths("/api", authRoutes));
 app.use('/api', projectsRoutes);
 app.use('/api', operatorsRoutes);
 
@@ -646,6 +680,11 @@ app.post('/api/demo/seed', async (req, res) => {
     const stderr = err.stderr ? err.stderr.toString() : '';
     res.status(500).json({ error: err.message || 'Seed failed', detail: stderr.slice(0, 500) });
   }
+});
+
+// Temporary debug endpoint: confirms this entry file is live.
+app.get('/api/debug/routes', (req, res) => {
+  res.status(200).json({ bootCheck: "SERVER INDEX LIVE v1", authRoutesMounted: true });
 });
 
 // ─── API error handler: ensure /api/* always returns JSON on errors
