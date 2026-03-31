@@ -2,6 +2,7 @@
 
 -- Portal users (invite-only). Passwords stored as bcrypt hashes.
 -- Roles: admin, production_lead, camera_operator. No public signup.
+-- operator_id: added by migration (references operators.id) for camera_operator scoping.
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   email VARCHAR(255) UNIQUE NOT NULL,

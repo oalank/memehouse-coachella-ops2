@@ -19,6 +19,7 @@ async function getOperators(req, res) {
 }
 
 async function postOperator(req, res) {
+  console.log('[POST /api/operators] route reached, body keys:', req.body ? Object.keys(req.body) : []);
   if (!hasDb) {
     res.status(503).json({ error: 'DATABASE_URL not set. Add it to server/.env and restart.' });
     return;
@@ -27,8 +28,14 @@ async function postOperator(req, res) {
     const created = await operatorsService.createOperator(req.body);
     res.status(201).json(created);
   } catch (err) {
-    console.error('[POST /api/operators]', err.message);
-    res.status(500).json({ error: err.message || 'Database error' });
+    console.error('[POST /api/operators] error:', err.message);
+    console.error('[POST /api/operators] stack:', err.stack);
+    if (err.code) console.error('[POST /api/operators] code:', err.code, 'hostname:', err.hostname);
+    if (err.message && String(err.message).includes('base') && String(err.message).toLowerCase().includes('enotfound')) {
+      console.error('[POST /api/operators] HINT: getaddrinfo ENOTFOUND base usually means DATABASE_URL has host "base". Check Railway backend env: DATABASE_URL should be the full Postgres URL (e.g. from Railway Postgres service), not a placeholder or reference to host "base".');
+    }
+    const message = err.message || 'Database error';
+    res.status(500).json({ error: message });
   }
 }
 
